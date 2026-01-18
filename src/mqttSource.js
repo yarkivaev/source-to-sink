@@ -50,9 +50,12 @@ function subscribed(client, handler) {
  * @param {string} url - MQTT broker URL (e.g., 'mqtt://localhost:1883')
  * @param {string} topic - MQTT topic pattern to subscribe
  * @param {object} collector - Collector with accept() method
+ * @param {object} [options] - Optional MQTT connection options
+ * @param {string} [options.clientId] - Client ID for persistent sessions
+ * @param {number} [options.sessionExpiryInterval] - Session expiry in seconds (default 3600)
  * @returns {object} Source with start() and stop() methods
  */
-export default function mqttSource(url, topic, collector) {
+export default function mqttSource(url, topic, collector, options = {}) {
   if (typeof url !== 'string' || url.length === 0) {
     throw new Error('URL must be a non-empty string');
   }
@@ -71,7 +74,14 @@ export default function mqttSource(url, topic, collector) {
       if (state.subscribed()) {
         return;
       }
-      const client = mqtt.connect(url);
+      const client = mqtt.connect(url, {
+        clientId: options.clientId,
+        clean: options.clientId ? false : true,
+        protocolVersion: 5,
+        properties: options.clientId ? {
+          sessionExpiryInterval: options.sessionExpiryInterval || 3600
+        } : undefined
+      });
       const handler = (t, message) => {
         if (t === topic || t.startsWith(topic.replace('#', '').replace('+', ''))) {
           const record = JSON.parse(message.toString());
@@ -80,7 +90,7 @@ export default function mqttSource(url, topic, collector) {
       };
       client.on('message', handler);
       client.on('connect', () => {
-        client.subscribe(topic);
+        client.subscribe(topic, { qos: options.clientId ? 1 : 0 });
       });
       state = subscribed(client, handler);
     },

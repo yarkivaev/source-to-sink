@@ -44,4 +44,11 @@ describe('mqttSource', () => {
     assert.strictEqual(typeof source.start, 'function', 'Should have start method');
     assert.strictEqual(typeof source.stop, 'function', 'Should have stop method');
   });
+
+  it('accepts optional options parameter', () => {
+    const collector = { accept: () => {} };
+    const source = mqttSource('mqtt://localhost:1883', 'test/topic', collector, { clientId: 'test-client' });
+    assert.strictEqual(typeof source.start, 'function', 'Should have start method');
+    assert.strictEqual(typeof source.stop, 'function', 'Should have stop method');
+  });
 });
