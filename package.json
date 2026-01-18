@@ -6,7 +6,10 @@
   "main": "index.js",
   "devDependencies": {
     "mocha": "^10.0.0",
-    "c8": "^8.0.0"
+    "c8": "^8.0.0",
+    "testcontainers": "^10.13.0",
+    "mqtt": "^5.0.0",
+    "@clickhouse/client": "^1.0.0"
   },
   "scripts": {
     "test": "mocha test/*.js",

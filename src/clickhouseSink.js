@@ -27,7 +27,7 @@ export default function clickhouseSink(client, table) {
      * @param {Array} records - Array of records to insert
      */
     write(records) {
-      client.insert({ table, values: records });
+      return client.insert({ table, values: records, format: 'JSONEachRow' });
     }
   };
 }
