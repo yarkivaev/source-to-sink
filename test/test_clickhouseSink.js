@@ -3,64 +3,40 @@ import { describe, it } from 'mocha';
 import clickhouseSink from '../src/clickhouseSink.js';
 
 describe('clickhouseSink', () => {
-  it('inserts records to specified table', () => {
-    let inserted = [];
-    const client = {
-      insert: ({ table, values }) => { inserted = { table, values }; }
-    };
-    const table = `table_${Math.random().toString(36).slice(2)}`;
-    const sink = clickhouseSink(client, table);
-    const records = [{ ts: Math.random(), value: `\u00e9${Math.random()}` }];
-    sink.write(records);
-    assert.strictEqual(inserted.table, table, 'Should insert to correct table');
-  });
-
-  it('passes records to client insert', () => {
-    let inserted = [];
-    const client = {
-      insert: ({ table, values }) => { inserted = { table, values }; }
-    };
-    const sink = clickhouseSink(client, 'metrics');
-    const records = [
-      { ts: Math.random(), value: `\u4e2d\u6587${Math.random()}` },
-      { ts: Math.random(), value: `\u0410\u0411${Math.random()}` }
-    ];
-    sink.write(records);
-    assert.strictEqual(inserted.values.length, 2, 'Should pass all records to client');
-  });
-
-  it('throws on missing client', () => {
+  it('throws on missing url', () => {
     assert.throws(
       () => clickhouseSink(null, 'metrics'),
-      /Client must have an insert\(\) method/,
-      'Should reject missing client'
+      /URL must be a non-empty string/,
+      'Should reject missing url'
     );
   });
 
-  it('throws on client without insert method', () => {
-    const client = { query: () => {} };
+  it('throws on empty url', () => {
     assert.throws(
-      () => clickhouseSink(client, 'metrics'),
-      /Client must have an insert\(\) method/,
-      'Should reject client without insert'
+      () => clickhouseSink('', 'metrics'),
+      /URL must be a non-empty string/,
+      'Should reject empty url'
     );
   });
 
   it('throws on missing table', () => {
-    const client = { insert: () => {} };
     assert.throws(
-      () => clickhouseSink(client, ''),
+      () => clickhouseSink('http://localhost:8123', null),
+      /Table must be a non-empty string/,
+      'Should reject missing table'
+    );
+  });
+
+  it('throws on empty table', () => {
+    assert.throws(
+      () => clickhouseSink('http://localhost:8123', ''),
       /Table must be a non-empty string/,
       'Should reject empty table'
     );
   });
 
-  it('throws on non-string table', () => {
-    const client = { insert: () => {} };
-    assert.throws(
-      () => clickhouseSink(client, 123),
-      /Table must be a non-empty string/,
-      'Should reject non-string table'
-    );
+  it('returns sink with write method', () => {
+    const sink = clickhouseSink('http://localhost:8123', 'metrics');
+    assert.strictEqual(typeof sink.write, 'function', 'Should have write method');
   });
 });

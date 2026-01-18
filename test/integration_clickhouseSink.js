@@ -7,6 +7,7 @@ import clickhouseSink from '../src/clickhouseSink.js';
 describe('clickhouseSink integration', function() {
   let container;
   let client;
+  let url;
 
   before(async function() {
     this.timeout(120000);
@@ -16,7 +17,8 @@ describe('clickhouseSink integration', function() {
       .start();
     const host = container.getHost();
     const port = container.getMappedPort(8123);
-    client = createClient({ url: `http://${host}:${port}` });
+    url = `http://${host}:${port}`;
+    client = createClient({ url });
     let retries = 30;
     while (retries > 0) {
       try {
@@ -51,7 +53,7 @@ describe('clickhouseSink integration', function() {
     const topic = `topic${Math.random().toString(36).slice(2)}`;
     const value = Math.random() * 100;
     const ts = Date.now();
-    const sink = clickhouseSink(client, 'test.metrics');
+    const sink = clickhouseSink(url, 'test.metrics');
     await sink.write([{ topic, ts, value }]);
     await new Promise((resolve) => setTimeout(resolve, 500));
     const result = await client.query({
@@ -69,7 +71,7 @@ describe('clickhouseSink integration', function() {
       { topic, ts: Date.now() + 1, value: Math.random() * 100 },
       { topic, ts: Date.now() + 2, value: Math.random() * 100 }
     ];
-    const sink = clickhouseSink(client, 'test.metrics');
+    const sink = clickhouseSink(url, 'test.metrics');
     await sink.write(records);
     await new Promise((resolve) => setTimeout(resolve, 500));
     const result = await client.query({
@@ -84,7 +86,7 @@ describe('clickhouseSink integration', function() {
     const topic = `тест${Math.random().toString(36).slice(2)}`;
     const value = Math.random() * 100;
     const ts = Date.now();
-    const sink = clickhouseSink(client, 'test.metrics');
+    const sink = clickhouseSink(url, 'test.metrics');
     await sink.write([{ topic, ts, value }]);
     await new Promise((resolve) => setTimeout(resolve, 500));
     const result = await client.query({

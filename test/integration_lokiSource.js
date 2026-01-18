@@ -5,52 +5,30 @@ import lokiSource from '../src/lokiSource.js';
 import clock from '../src/clock.js';
 
 /**
- * Creates a Loki client wrapper for testing.
+ * Pushes a log entry to Loki via HTTP API.
  *
  * @param {string} url - Loki base URL
- * @returns {object} Client with query() and push() methods
+ * @param {object} labels - Stream labels
+ * @param {string} line - Log line content
  */
-function lokiClient(url) {
-  return {
-    async query(logql, since, until) {
-      const params = new URLSearchParams({
-        query: logql,
-        start: (since * 1000000).toString(),
-        end: (until * 1000000).toString(),
-        limit: '1000'
-      });
-      const response = await fetch(`${url}/loki/api/v1/query_range?${params}`);
-      const data = await response.json();
-      const entries = [];
-      if (data.data && data.data.result) {
-        for (const stream of data.data.result) {
-          for (const [ts, line] of stream.values) {
-            entries.push({ ts: parseInt(ts, 10) / 1000000, line });
-          }
-        }
-      }
-      return entries;
-    },
-    async push(labels, line) {
-      const ts = Date.now() * 1000000;
-      const payload = {
-        streams: [{
-          stream: labels,
-          values: [[ts.toString(), line]]
-        }]
-      };
-      await fetch(`${url}/loki/api/v1/push`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-    }
+async function pushToLoki(url, labels, line) {
+  const ts = Date.now() * 1000000;
+  const payload = {
+    streams: [{
+      stream: labels,
+      values: [[ts.toString(), line]]
+    }]
   };
+  await fetch(`${url}/loki/api/v1/push`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 }
 
 describe('lokiSource integration', function() {
   let container;
-  let client;
+  let url;
 
   before(async function() {
     this.timeout(120000);
@@ -60,8 +38,7 @@ describe('lokiSource integration', function() {
       .start();
     const host = container.getHost();
     const port = container.getMappedPort(3100);
-    const url = `http://${host}:${port}`;
-    client = lokiClient(url);
+    url = `http://${host}:${port}`;
     let retries = 30;
     while (retries > 0) {
       try {
@@ -90,10 +67,10 @@ describe('lokiSource integration', function() {
     const app = `app${Math.random().toString(36).slice(2)}`;
     const collector = { accept: (entry) => received.push(entry) };
     const clk = clock();
-    const source = lokiSource(client, `{app="${app}"}`, 0.5, collector, clk);
+    const source = lokiSource(url, `{app="${app}"}`, 0.5, collector, clk);
     source.start();
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await client.push({ app }, `test entry ${Math.random()}`);
+    await pushToLoki(url, { app }, `test entry ${Math.random()}`);
     await new Promise((resolve) => setTimeout(resolve, 3000));
     source.stop();
     assert.strictEqual(received.length >= 1, true, 'Should receive entries from Loki');
@@ -105,10 +82,10 @@ describe('lokiSource integration', function() {
     const app = `app${Math.random().toString(36).slice(2)}`;
     const collector = { accept: (entry) => received.push(entry) };
     const clk = clock();
-    const source = lokiSource(client, `{app="${app}"}`, 0.5, collector, clk);
+    const source = lokiSource(url, `{app="${app}"}`, 0.5, collector, clk);
     source.start();
     await new Promise((resolve) => setTimeout(resolve, 500));
-    await client.push({ app }, `тест запись ${Math.random()}`);
+    await pushToLoki(url, { app }, `тест запись ${Math.random()}`);
     await new Promise((resolve) => setTimeout(resolve, 3000));
     source.stop();
     assert.strictEqual(received.length >= 1, true, 'Should receive entries with unicode');
@@ -120,12 +97,12 @@ describe('lokiSource integration', function() {
     const app = `app${Math.random().toString(36).slice(2)}`;
     const collector = { accept: (entry) => received.push(entry) };
     const clk = clock();
-    const source = lokiSource(client, `{app="${app}"}`, 0.5, collector, clk);
+    const source = lokiSource(url, `{app="${app}"}`, 0.5, collector, clk);
     source.start();
     await new Promise((resolve) => setTimeout(resolve, 1000));
     source.stop();
     const before = received.length;
-    await client.push({ app }, `after stop ${Math.random()}`);
+    await pushToLoki(url, { app }, `after stop ${Math.random()}`);
     await new Promise((resolve) => setTimeout(resolve, 2000));
     assert.strictEqual(received.length, before, 'Should not receive entries after stop');
   });

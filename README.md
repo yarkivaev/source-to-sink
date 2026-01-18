@@ -1,6 +1,6 @@
 # source-to-sink
 
-A lightweight library for building data streaming pipelines with batching and circuit breaker support.
+A library for building data streaming pipelines with batching and circuit breaker support.
 
 ## Installation
 
@@ -15,9 +15,9 @@ import { batch, circuit, timedBatch, clock, clickhouseSink, mqttSource } from 's
 
 const clk = clock();
 const breaker = circuit(5, 60, clk);
-const sink = clickhouseSink(clickhouseClient, 'metrics');
+const sink = clickhouseSink('http://localhost:8123', 'metrics');
 const collector = timedBatch(batch(sink, 1000, breaker), 5.0);
-const source = mqttSource(mqttClient, 'sensors/#', collector);
+const source = mqttSource('mqtt://localhost:1883', 'sensors/#', collector);
 
 source.start();
 ```
@@ -30,9 +30,10 @@ source.start();
 | `circuit(threshold, timeout, clock)` | Circuit breaker for failure isolation |
 | `timedBatch(collector, interval)` | Adds time-based auto-flush to a collector |
 | `clock()` | System time provider |
-| `clickhouseSink(client, table)` | ClickHouse sink adapter |
-| `mqttSource(client, topic, collector)` | MQTT subscription source |
-| `lokiSource(client, query, interval, collector, clock)` | Loki polling source |
+| `pollingSource(fetch, interval, collector, clock)` | Generic polling source with time window |
+| `clickhouseSink(url, table)` | ClickHouse sink adapter |
+| `mqttSource(url, topic, collector)` | MQTT subscription source |
+| `lokiSource(url, query, interval, collector, clock)` | Loki polling source |
 
 ## License
 

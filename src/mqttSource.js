@@ -1,3 +1,5 @@
+import mqtt from 'mqtt';
+
 /**
  * Idle state for MQTT source.
  *
@@ -14,13 +16,17 @@ function idle() {
 /**
  * Subscribed state for MQTT source.
  *
+ * @param {object} client - MQTT client
  * @param {function} handler - Message handler function
  * @returns {object} State with subscribed() returning true
  */
-function subscribed(handler) {
+function subscribed(client, handler) {
   return {
     subscribed() {
       return true;
+    },
+    client() {
+      return client;
     },
     handler() {
       return handler;
@@ -33,30 +39,22 @@ function subscribed(handler) {
  *
  * Subscribes to an MQTT topic and forwards messages to the collector.
  * Messages are parsed as JSON before being passed to accept().
+ * Creates MQTT client internally.
  *
  * @example
- * const source = mqttSource(mqttClient, 'sensors/#', collector);
+ * const source = mqttSource('mqtt://localhost:1883', 'sensors/#', collector);
  * source.start();
  * // ... later
  * source.stop();
  *
- * @param {object} client - MQTT client with subscribe(), on(), unsubscribe()
+ * @param {string} url - MQTT broker URL (e.g., 'mqtt://localhost:1883')
  * @param {string} topic - MQTT topic pattern to subscribe
  * @param {object} collector - Collector with accept() method
  * @returns {object} Source with start() and stop() methods
  */
-export default function mqttSource(client, topic, collector) {
-  if (!client || typeof client.subscribe !== 'function') {
-    throw new Error('Client must have a subscribe() method');
-  }
-  if (!client || typeof client.on !== 'function') {
-    throw new Error('Client must have an on() method');
-  }
-  if (!client || typeof client.unsubscribe !== 'function') {
-    throw new Error('Client must have an unsubscribe() method');
-  }
-  if (!client || typeof client.off !== 'function') {
-    throw new Error('Client must have an off() method');
+export default function mqttSource(url, topic, collector) {
+  if (typeof url !== 'string' || url.length === 0) {
+    throw new Error('URL must be a non-empty string');
   }
   if (typeof topic !== 'string' || topic.length === 0) {
     throw new Error('Topic must be a non-empty string');
@@ -73,6 +71,7 @@ export default function mqttSource(client, topic, collector) {
       if (state.subscribed()) {
         return;
       }
+      const client = mqtt.connect(url);
       const handler = (t, message) => {
         if (t === topic || t.startsWith(topic.replace('#', '').replace('+', ''))) {
           const record = JSON.parse(message.toString());
@@ -80,8 +79,10 @@ export default function mqttSource(client, topic, collector) {
         }
       };
       client.on('message', handler);
-      client.subscribe(topic);
-      state = subscribed(handler);
+      client.on('connect', () => {
+        client.subscribe(topic);
+      });
+      state = subscribed(client, handler);
     },
     /**
      * Stops subscribing to the MQTT topic.
@@ -90,8 +91,10 @@ export default function mqttSource(client, topic, collector) {
       if (!state.subscribed()) {
         return;
       }
+      const client = state.client();
       client.unsubscribe(topic);
       client.off('message', state.handler());
+      client.end();
       state = idle();
     }
   };
