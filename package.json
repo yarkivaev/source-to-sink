@@ -1,0 +1,15 @@
+{
+  "name": "source-to-sink",
+  "version": "1.0.0",
+  "description": "Generic library for building data streaming pipelines",
+  "type": "module",
+  "main": "index.js",
+  "devDependencies": {
+    "mocha": "^10.0.0",
+    "c8": "^8.0.0"
+  },
+  "scripts": {
+    "test": "mocha test/*.js",
+    "coverage": "c8 mocha test/*.js"
+  }
+}
