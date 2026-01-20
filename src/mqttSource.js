@@ -37,38 +37,39 @@ function subscribed(client, handler) {
 /**
  * MQTT subscription source for streaming messages to a collector.
  *
- * Subscribes to an MQTT topic and forwards messages to the collector.
- * Messages are parsed as JSON before being passed to accept().
- * Creates MQTT client internally.
+ * Subscribes to MQTT topics and forwards raw messages to the collector.
+ * Messages are passed as {topic, payload} objects without parsing.
+ * Creates MQTT client internally. Supports comma-separated topic patterns.
  *
  * @example
- * const source = mqttSource('mqtt://localhost:1883', 'sensors/#', collector);
+ * const source = mqttSource('mqtt://localhost:1883', 'sensors/#,devices/#', collector);
  * source.start();
  * // ... later
  * source.stop();
  *
  * @param {string} url - MQTT broker URL (e.g., 'mqtt://localhost:1883')
- * @param {string} topic - MQTT topic pattern to subscribe
- * @param {object} collector - Collector with accept() method
+ * @param {string} topics - Comma-separated MQTT topic patterns to subscribe
+ * @param {object} collector - Collector with accept() method receiving {topic, payload}
  * @param {object} [options] - Optional MQTT connection options
  * @param {string} [options.clientId] - Client ID for persistent sessions
  * @param {number} [options.sessionExpiryInterval] - Session expiry in seconds (default 3600)
  * @returns {object} Source with start() and stop() methods
  */
-export default function mqttSource(url, topic, collector, options = {}) {
+export default function mqttSource(url, topics, collector, options = {}) {
   if (typeof url !== 'string' || url.length === 0) {
     throw new Error('URL must be a non-empty string');
   }
-  if (typeof topic !== 'string' || topic.length === 0) {
+  if (typeof topics !== 'string' || topics.length === 0) {
     throw new Error('Topic must be a non-empty string');
   }
   if (!collector || typeof collector.accept !== 'function') {
     throw new Error('Collector must have an accept() method');
   }
+  const list = topics.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
   let state = idle();
   return {
     /**
-     * Starts subscribing to the MQTT topic.
+     * Starts subscribing to the MQTT topics.
      */
     start() {
       if (state.subscribed()) {
@@ -83,26 +84,23 @@ export default function mqttSource(url, topic, collector, options = {}) {
         } : undefined
       });
       const handler = (t, message) => {
-        if (t === topic || t.startsWith(topic.replace('#', '').replace('+', ''))) {
-          const record = JSON.parse(message.toString());
-          collector.accept(record);
-        }
+        collector.accept({ topic: t, payload: message.toString() });
       };
       client.on('message', handler);
       client.on('connect', () => {
-        client.subscribe(topic, { qos: options.clientId ? 1 : 0 });
+        client.subscribe(list, { qos: options.clientId ? 1 : 0 });
       });
       state = subscribed(client, handler);
     },
     /**
-     * Stops subscribing to the MQTT topic.
+     * Stops subscribing to the MQTT topics.
      */
     stop() {
       if (!state.subscribed()) {
         return;
       }
       const client = state.client();
-      client.unsubscribe(topic);
+      client.unsubscribe(list);
       client.off('message', state.handler());
       client.end();
       state = idle();

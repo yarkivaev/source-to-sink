@@ -81,4 +81,39 @@ describe('mqttSource integration', function() {
     await new Promise((resolve) => setTimeout(resolve, 500));
     assert.strictEqual(received.length, before, 'Should not receive messages after stop');
   });
+
+  it('receives messages from multiple comma separated topics', async function() {
+    this.timeout(10000);
+    const received = [];
+    const suffix = Math.random().toString(36).slice(2);
+    const first = `plant/${suffix}`;
+    const second = `device/${suffix}`;
+    const topics = `${first},${second}`;
+    const collector = { accept: (record) => received.push(record) };
+    const source = mqttSource(url, topics, collector);
+    source.start();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    publisher.publish(first, JSON.stringify({ source: 'first', value: Math.random() }));
+    publisher.publish(second, JSON.stringify({ source: 'second', value: Math.random() }));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    source.stop();
+    assert.strictEqual(received.length, 2, 'Should receive messages from both topics');
+  });
+
+  it('passes raw message with topic and payload to collector', async function() {
+    this.timeout(10000);
+    const received = [];
+    const topic = `raw/${Math.random().toString(36).slice(2)}`;
+    const collector = { accept: (record) => received.push(record) };
+    const source = mqttSource(url, topic, collector);
+    source.start();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const payload = `plain text message ${Math.random()}`;
+    publisher.publish(topic, payload);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    source.stop();
+    assert.strictEqual(received.length, 1, 'Should receive raw message');
+    assert.strictEqual(received[0].topic, topic, 'Should include topic');
+    assert.strictEqual(received[0].payload, payload, 'Should include raw payload');
+  });
 });
