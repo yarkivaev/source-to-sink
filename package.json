@@ -1,7 +1,11 @@
 {
-  "name": "source-to-sink",
-  "version": "1.0.0",
+  "name": "@yarkivaev/source-to-sink",
+  "version": "1.0.1",
   "description": "Generic library for building data streaming pipelines",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yarkivaev/source-to-sink"
+  },
   "type": "module",
   "main": "index.js",
   "dependencies": {
