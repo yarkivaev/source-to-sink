@@ -8,7 +8,9 @@
  * - clock: Time provider for circuit breaker
  * - pollingSource: Generic polling source with time window
  * - clickhouseSink: ClickHouse sink (accepts URL)
+ * - postgresSink: PostgreSQL sink (accepts URL)
  * - mqttSource: MQTT subscription source (accepts URL)
+ * - stompSource: STOMP subscription source (accepts URL)
  * - lokiSource: Loki polling source (accepts URL)
  *
  * @example
@@ -27,5 +29,7 @@ export { default as clock } from './src/clock.js';
 export { default as timedBatch } from './src/timedBatch.js';
 export { default as pollingSource } from './src/pollingSource.js';
 export { default as clickhouseSink } from './src/clickhouseSink.js';
+export { default as postgresSink } from './src/postgresSink.js';
 export { default as mqttSource } from './src/mqttSource.js';
+export { default as stompSource } from './src/stompSource.js';
 export { default as lokiSource } from './src/lokiSource.js';

@@ -10,7 +10,9 @@
   "main": "index.js",
   "dependencies": {
     "mqtt": "^5.0.0",
-    "@clickhouse/client": "^1.0.0"
+    "@clickhouse/client": "^1.0.0",
+    "stompit": "^1.0.0",
+    "pg": "^8.0.0"
   },
   "devDependencies": {
     "mocha": "^10.0.0",
