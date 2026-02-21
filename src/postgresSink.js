@@ -5,7 +5,8 @@ import pg from 'pg';
  *
  * Creates a pg.Pool internally and implements the Sink
  * interface for use with batch collectors. Supports optional
- * conflict resolution via ON CONFLICT DO NOTHING.
+ * conflict resolution via ON CONFLICT DO NOTHING or
+ * ON CONFLICT DO UPDATE SET.
  *
  * @example
  * const sink = postgresSink('postgresql://localhost:5432/db', 'metrics', ['ts', 'value']);
@@ -20,9 +21,26 @@ import pg from 'pg';
  * @param {string} table - Target table name
  * @param {Array<string>} columns - Column names for insertion
  * @param {object} [options] - Optional configuration
- * @param {Array<string>} [options.conflict] - Columns for ON CONFLICT DO NOTHING clause
+ * @param {Array<string>} [options.conflict] - Columns for ON CONFLICT clause
+ * @param {Array<string>} [options.update] - Columns for DO UPDATE SET clause
  * @returns {object} Sink with write(records) method
  */
+/**
+ * Builds the ON CONFLICT SQL suffix from options.
+ *
+ * @param {object} options - Sink options with conflict and update arrays
+ * @returns {string} SQL suffix or empty string
+ */
+function buildSuffix(options) {
+  if (!Array.isArray(options.conflict) || options.conflict.length === 0) return '';
+  const cols = options.conflict.join(', ');
+  if (Array.isArray(options.update) && options.update.length > 0) {
+    const sets = options.update.map(c => `${c} = EXCLUDED.${c}`).join(', ');
+    return ` ON CONFLICT (${cols}) DO UPDATE SET ${sets}`;
+  }
+  return ` ON CONFLICT (${cols}) DO NOTHING`;
+}
+
 export default function postgresSink(url, table, columns, options = {}) {
   if (typeof url !== 'string' || url.length === 0) {
     throw new Error('URL must be a non-empty string');
@@ -34,9 +52,7 @@ export default function postgresSink(url, table, columns, options = {}) {
     throw new Error('Columns must be a non-empty array');
   }
   const pool = new pg.Pool({ connectionString: url });
-  const suffix = Array.isArray(options.conflict) && options.conflict.length > 0
-    ? ` ON CONFLICT (${options.conflict.join(', ')}) DO NOTHING`
-    : '';
+  const suffix = buildSuffix(options);
   return {
     /**
      * Writes records to PostgreSQL table.

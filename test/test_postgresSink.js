@@ -73,4 +73,11 @@ describe('postgresSink', () => {
       ['ts', 'value'], {});
     assert.strictEqual(typeof sink.write, 'function', 'Should have write method without conflict key');
   });
+
+  it('returns sink with write method when conflict and update options are provided', () => {
+    const sink = postgresSink('postgresql://localhost:5432/db', 'segments',
+      ['machine', 'name', 'start_time', 'end_time', 'duration'],
+      { conflict: ['machine', 'start_time'], update: ['name', 'end_time', 'duration'] });
+    assert.strictEqual(typeof sink.write, 'function', 'Should have write method with update option');
+  });
 });
