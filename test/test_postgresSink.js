@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'mocha';
-import postgresSink from '../src/postgresSink.js';
+import postgresSink, { deduplicate } from '../src/postgresSink.js';
 
 describe('postgresSink', () => {
   it('throws on missing url', () => {
@@ -79,5 +79,33 @@ describe('postgresSink', () => {
       ['machine', 'name', 'start_time', 'end_time', 'duration'],
       { conflict: ['machine', 'start_time'], update: ['name', 'end_time', 'duration'] });
     assert.strictEqual(typeof sink.write, 'function', 'Should have write method with update option');
+  });
+
+  it('deduplicates batch by conflict columns keeping last occurrence', () => {
+    const records = [
+      { machine: 'ü-1', name: 'pending', start_time: '2024-01-01' },
+      { machine: 'ü-1', name: 'completed', start_time: '2024-01-01' },
+      { machine: 'ö-2', name: 'pending', start_time: '2024-01-02' }
+    ];
+    const result = deduplicate(records, ['machine', 'start_time']);
+    assert.strictEqual(result.length, 2, 'Should remove duplicate conflict key');
+  });
+
+  it('keeps last record when conflict columns match', () => {
+    const records = [
+      { machine: 'ü-1', name: 'pending', start_time: '2024-01-01' },
+      { machine: 'ü-1', name: 'completed', start_time: '2024-01-01' }
+    ];
+    const result = deduplicate(records, ['machine', 'start_time']);
+    assert.strictEqual(result[0].name, 'completed', 'Should keep the last occurrence');
+  });
+
+  it('returns records unchanged when no conflict columns', () => {
+    const records = [
+      { machine: 'ä-1', name: 'à', start_time: '2024-01-01' },
+      { machine: 'ä-1', name: 'à', start_time: '2024-01-01' }
+    ];
+    const result = deduplicate(records, []);
+    assert.strictEqual(result.length, 2, 'Should not deduplicate without conflict columns');
   });
 });

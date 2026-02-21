@@ -26,6 +26,35 @@ import pg from 'pg';
  * @returns {object} Sink with write(records) method
  */
 /**
+ * Removes duplicate records by conflict key within a batch.
+ *
+ * PostgreSQL rejects INSERT batches where ON CONFLICT would update
+ * the same row twice. This keeps the last occurrence for each
+ * unique combination of conflict column values.
+ *
+ * @example
+ *   deduplicate(
+ *     [{ machine: 'a', start: 1, name: 'pending' },
+ *      { machine: 'a', start: 1, name: 'completed' }],
+ *     ['machine', 'start']
+ *   );
+ *   // => [{ machine: 'a', start: 1, name: 'completed' }]
+ *
+ * @param {Array} records - Array of record objects
+ * @param {Array<string>} keys - Conflict column names
+ * @returns {Array} Deduplicated records
+ */
+export function deduplicate(records, keys) {
+  if (keys.length === 0) return records;
+  const seen = new Map();
+  for (const record of records) {
+    const key = keys.map(k => record[k]).join('\0');
+    seen.set(key, record);
+  }
+  return Array.from(seen.values());
+}
+
+/**
  * Builds the ON CONFLICT SQL suffix from options.
  *
  * @param {object} options - Sink options with conflict and update arrays
@@ -53,6 +82,7 @@ export default function postgresSink(url, table, columns, options = {}) {
   }
   const pool = new pg.Pool({ connectionString: url });
   const suffix = buildSuffix(options);
+  const conflict = Array.isArray(options.conflict) ? options.conflict : [];
   return {
     /**
      * Writes records to PostgreSQL table.
@@ -61,13 +91,14 @@ export default function postgresSink(url, table, columns, options = {}) {
      * @returns {Promise} Promise resolving when insert completes
      */
     write(records) {
-      const placeholders = records.map((_, i) => {
+      const unique = deduplicate(records, conflict);
+      const placeholders = unique.map((_, i) => {
         const offset = i * columns.length;
         const row = columns.map((__, j) => `$${offset + j + 1}`).join(', ');
         return `(${row})`;
       }).join(', ');
       const query = `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${placeholders}${suffix}`;
-      const values = records.flatMap((record) => columns.map((col) => record[col]));
+      const values = unique.flatMap((record) => columns.map((col) => record[col]));
       return pool.query(query, values);
     }
   };
