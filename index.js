@@ -12,6 +12,8 @@
  * - mqttSource: MQTT subscription source (accepts URL)
  * - stompSource: STOMP subscription source (accepts URL)
  * - lokiSource: Loki polling source (accepts URL)
+ * - modbusSource: Modbus TCP polling source (accepts host/port)
+ * - mqttSink: MQTT publishing sink (accepts URL)
  *
  * @example
  * import { batch, circuit, timedBatch, clock, clickhouseSink, mqttSource } from 'source-to-sink';
@@ -33,3 +35,5 @@ export { default as postgresSink } from './src/postgresSink.js';
 export { default as mqttSource } from './src/mqttSource.js';
 export { default as stompSource } from './src/stompSource.js';
 export { default as lokiSource } from './src/lokiSource.js';
+export { default as modbusSource } from './src/modbusSource.js';
+export { default as mqttSink } from './src/mqttSink.js';
