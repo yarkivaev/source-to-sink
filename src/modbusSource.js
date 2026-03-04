@@ -4,12 +4,35 @@ import pollingSource from './pollingSource.js';
 /**
  * Idle state for Modbus connection.
  *
- * @returns {object} State with connected() returning false
+ * @returns {object} State with connected() returning false and no retry handle
  */
 function idle() {
   return {
     connected() {
       return false;
+    },
+    retrying() {
+      return false;
+    }
+  };
+}
+
+/**
+ * Retrying state for Modbus connection.
+ *
+ * @param {object} handle - Timer handle from setTimeout
+ * @returns {object} State with retrying() returning true
+ */
+function retrying(handle) {
+  return {
+    connected() {
+      return false;
+    },
+    retrying() {
+      return true;
+    },
+    cancel() {
+      clearTimeout(handle);
     }
   };
 }
@@ -24,6 +47,9 @@ function connected(client) {
   return {
     connected() {
       return true;
+    },
+    retrying() {
+      return false;
     },
     disconnect() {
       client.close();
@@ -51,9 +77,10 @@ function connected(client) {
  * @param {number} interval - Polling interval in seconds
  * @param {object} collector - Collector with accept() method
  * @param {object} clk - Clock with millis() method
+ * @param {object} [log] - Logger with error() method for connection failures
  * @returns {object} Source with start() and stop() methods
  */
-export default function modbusSource(host, port, address, count, interval, collector, clk) {
+export default function modbusSource(host, port, address, count, interval, collector, clk, log = console) {
   if (typeof host !== 'string' || host.length === 0) {
     throw new Error('Host must be a non-empty string');
   }
@@ -72,24 +99,40 @@ export default function modbusSource(host, port, address, count, interval, colle
     const result = await client.readHoldingRegisters(address, count);
     return [result.data];
   };
+  const maxDelay = 300;
   const source = pollingSource(fetch, interval, collector, clk);
+  let delay = interval;
+  const attempt = () => {
+    client.connectTCP(host, { port }).then(() => {
+      delay = interval;
+      state = connected(client);
+      source.start();
+    }).catch((err) => {
+      log.error(`Connection to ${host}:${port} failed, retrying in ${delay}s: ${err.message}`);
+      const handle = setTimeout(attempt, delay * 1000);
+      state = retrying(handle);
+      delay = Math.min(delay * 2, maxDelay);
+    });
+  };
   return {
     /**
      * Connects to the Modbus device and starts polling.
      */
-    async start() {
-      if (state.connected()) {
+    start() {
+      if (state.connected() || state.retrying()) {
         return;
       }
-      await client.connectTCP(host, { port });
-      state = connected(client);
-      source.start();
+      attempt();
     },
     /**
      * Stops polling and disconnects from the Modbus device.
      */
     stop() {
       source.stop();
+      if (state.retrying()) {
+        state.cancel();
+        state = idle();
+      }
       if (state.connected()) {
         state.disconnect();
         state = idle();

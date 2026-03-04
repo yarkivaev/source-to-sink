@@ -93,4 +93,27 @@ describe('modbusSource', () => {
     source.stop();
     assert.strictEqual(true, true, 'Should not throw when stopping without start');
   });
+
+  it('retries connection on failure', async () => {
+    let logged = false;
+    const log = { error: () => { logged = true; } };
+    const collector = { accept: () => {} };
+    const clk = fakeClock(Math.floor(Math.random() * 10000));
+    const source = modbusSource(`\u00df${Math.random()}`, 502, 4000, 14, 5, collector, clk, log);
+    source.start();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    source.stop();
+    assert.strictEqual(logged, true, 'Should log connection failure and retry');
+  });
+
+  it('does not crash process on connection failure', async () => {
+    const log = { error: () => {} };
+    const collector = { accept: () => {} };
+    const clk = fakeClock(Math.floor(Math.random() * 10000));
+    const source = modbusSource(`\u0420${Math.random()}`, 502, 4000, 14, 5, collector, clk, log);
+    source.start();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    source.stop();
+    assert.strictEqual(true, true, 'Should not crash on unreachable host');
+  });
 });
