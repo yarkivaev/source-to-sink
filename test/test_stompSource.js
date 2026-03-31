@@ -6,8 +6,8 @@ describe('stompSource', () => {
   it('throws on missing url', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => stompSource(null, '/queue/test', collector),
-      /URL must be a non-empty string/,
+      () => {return stompSource(null, '/queue/test', collector)},
+      /URL must be a non-empty string/u,
       'Should reject missing url'
     );
   });
@@ -15,8 +15,8 @@ describe('stompSource', () => {
   it('throws on empty url', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => stompSource('', '/queue/test', collector),
-      /URL must be a non-empty string/,
+      () => {return stompSource('', '/queue/test', collector)},
+      /URL must be a non-empty string/u,
       'Should reject empty url'
     );
   });
@@ -24,16 +24,16 @@ describe('stompSource', () => {
   it('throws on empty destination', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => stompSource('stomp://localhost:61613', '', collector),
-      /Destination must be a non-empty string/,
+      () => {return stompSource('stomp://localhost:61613', '', collector)},
+      /Destination must be a non-empty string/u,
       'Should reject empty destination'
     );
   });
 
   it('throws on missing collector', () => {
     assert.throws(
-      () => stompSource('stomp://localhost:61613', '/queue/test', null),
-      /Collector must have an accept\(\) method/,
+      () => {return stompSource('stomp://localhost:61613', '/queue/test', null)},
+      /Collector must have an accept\(\) method/u,
       'Should reject missing collector'
     );
   });

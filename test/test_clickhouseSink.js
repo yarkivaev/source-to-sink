@@ -5,32 +5,32 @@ import clickhouseSink from '../src/clickhouseSink.js';
 describe('clickhouseSink', () => {
   it('throws on missing url', () => {
     assert.throws(
-      () => clickhouseSink(null, 'metrics'),
-      /URL must be a non-empty string/,
+      () => {return clickhouseSink(null, 'metrics')},
+      /URL must be a non-empty string/u,
       'Should reject missing url'
     );
   });
 
   it('throws on empty url', () => {
     assert.throws(
-      () => clickhouseSink('', 'metrics'),
-      /URL must be a non-empty string/,
+      () => {return clickhouseSink('', 'metrics')},
+      /URL must be a non-empty string/u,
       'Should reject empty url'
     );
   });
 
   it('throws on missing table', () => {
     assert.throws(
-      () => clickhouseSink('http://localhost:8123', null),
-      /Table must be a non-empty string/,
+      () => {return clickhouseSink('http://localhost:8123', null)},
+      /Table must be a non-empty string/u,
       'Should reject missing table'
     );
   });
 
   it('throws on empty table', () => {
     assert.throws(
-      () => clickhouseSink('http://localhost:8123', ''),
-      /Table must be a non-empty string/,
+      () => {return clickhouseSink('http://localhost:8123', '')},
+      /Table must be a non-empty string/u,
       'Should reject empty table'
     );
   });

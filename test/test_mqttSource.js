@@ -6,8 +6,8 @@ describe('mqttSource', () => {
   it('throws on missing url', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => mqttSource(null, 'test/topic', collector),
-      /URL must be a non-empty string/,
+      () => {return mqttSource(null, 'test/topic', collector)},
+      /URL must be a non-empty string/u,
       'Should reject missing url'
     );
   });
@@ -15,8 +15,8 @@ describe('mqttSource', () => {
   it('throws on empty url', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => mqttSource('', 'test/topic', collector),
-      /URL must be a non-empty string/,
+      () => {return mqttSource('', 'test/topic', collector)},
+      /URL must be a non-empty string/u,
       'Should reject empty url'
     );
   });
@@ -24,16 +24,16 @@ describe('mqttSource', () => {
   it('throws on empty topic', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => mqttSource('mqtt://localhost:1883', '', collector),
-      /Topic must be a non-empty string/,
+      () => {return mqttSource('mqtt://localhost:1883', '', collector)},
+      /Topic must be a non-empty string/u,
       'Should reject empty topic'
     );
   });
 
   it('throws on missing collector', () => {
     assert.throws(
-      () => mqttSource('mqtt://localhost:1883', 'test', null),
-      /Collector must have an accept\(\) method/,
+      () => {return mqttSource('mqtt://localhost:1883', 'test', null)},
+      /Collector must have an accept\(\) method/u,
       'Should reject missing collector'
     );
   });

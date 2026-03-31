@@ -54,6 +54,25 @@ function subscribed(channel) {
  * @param {string} [options.host] - Virtual host for STOMP connection
  * @returns {object} Source with start() and stop() methods
  */
+/**
+ * Builds STOMP server configuration from a URL.
+ *
+ * @param {URL} parsed - Parsed URL object
+ * @param {object} options - Connection options
+ * @returns {object} Server config for ConnectFailover
+ */
+function serverConfig(parsed, options) {
+  return {
+    host: parsed.hostname,
+    port: parseInt(parsed.port, 10) || 61613,
+    connectHeaders: {
+      host: options.host || parsed.hostname,
+      login: options.login || '',
+      passcode: options.passcode || ''
+    }
+  };
+}
+
 export default function stompSource(url, destination, collector, options = {}) {
   if (typeof url !== 'string' || url.length === 0) {
     throw new Error('URL must be a non-empty string');
@@ -74,17 +93,7 @@ export default function stompSource(url, destination, collector, options = {}) {
       if (state.subscribed()) {
         return;
       }
-      const headers = {
-        host: options.host || parsed.hostname,
-        login: options.login || '',
-        passcode: options.passcode || ''
-      };
-      const server = {
-        host: parsed.hostname,
-        port: parseInt(parsed.port, 10) || 61613,
-        connectHeaders: headers
-      };
-      const failover = new stompit.ConnectFailover([server], {
+      const failover = new stompit.ConnectFailover([serverConfig(parsed, options)], {
         initialReconnectDelay: 10,
         maxReconnectDelay: 30000,
         maxReconnects: -1

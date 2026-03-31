@@ -65,7 +65,7 @@ export default function mqttSource(url, topics, collector, options = {}) {
   if (!collector || typeof collector.accept !== 'function') {
     throw new Error('Collector must have an accept() method');
   }
-  const list = topics.split(',').map((t) => t.trim()).filter((t) => t.length > 0);
+  const list = topics.split(',').map((tp) => {return tp.trim()}).filter((tp) => {return tp.length > 0});
   let state = idle();
   return {
     /**
@@ -77,15 +77,15 @@ export default function mqttSource(url, topics, collector, options = {}) {
       }
       const client = mqtt.connect(url, {
         clientId: options.clientId,
-        clean: options.clientId ? false : true,
+        clean: !options.clientId,
         protocolVersion: 5,
         properties: options.clientId ? {
           sessionExpiryInterval: options.sessionExpiryInterval || 3600
         } : undefined
       });
-      const handler = (t, message) => {
-        collector.accept({ topic: t, payload: message.toString() });
-      };
+      function handler(tp, message) {
+        collector.accept({ topic: tp, payload: message.toString() });
+      }
       client.on('message', handler);
       client.on('connect', () => {
         client.subscribe(list, { qos: options.clientId ? 1 : 0 });

@@ -28,12 +28,12 @@ export default function sqliteSink(path, table, columns) {
   }
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
-  const placeholders = columns.map(() => '?').join(', ');
+  const placeholders = columns.map(() => {return '?'}).join(', ');
   const sql = `INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`;
   const statement = db.prepare(sql);
   const transaction = db.transaction((records) => {
     for (const record of records) {
-      statement.run(...columns.map((col) => record[col]));
+      statement.run(...columns.map((col) => {return record[col]}));
     }
   });
   return {

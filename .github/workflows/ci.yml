@@ -9,4 +9,4 @@ jobs:
     uses: yarkivaev/npm-workflows/.github/workflows/ci.yml@main
     with:
       node-version: '22'
-      lint: false
+      lint: true

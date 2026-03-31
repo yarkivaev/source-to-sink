@@ -63,7 +63,7 @@ export default function timedBatch(origin, interval) {
     throw new Error(`Interval must be a positive number, got: ${interval}`);
   }
   let timer = idle();
-  const schedule = () => {
+  function schedule() {
     if (!timer.scheduled()) {
       const handle = setTimeout(() => {
         timer = idle();
@@ -71,11 +71,11 @@ export default function timedBatch(origin, interval) {
       }, interval * 1000);
       timer = scheduled(handle);
     }
-  };
-  const cancel = () => {
+  }
+  function cancel() {
     timer.cancel();
     timer = idle();
-  };
+  }
   return {
     /**
      * Accepts a record and schedules flush timer.

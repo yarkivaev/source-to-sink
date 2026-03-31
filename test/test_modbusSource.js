@@ -8,8 +8,8 @@ describe('modbusSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     assert.throws(
-      () => modbusSource('', 502, 4000, 14, 5, collector, clk),
-      /Host must be a non-empty string/,
+      () => {return modbusSource('', 502, 4000, 14, 5, collector, clk)},
+      /Host must be a non-empty string/u,
       'Should reject empty host'
     );
   });
@@ -18,8 +18,8 @@ describe('modbusSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     assert.throws(
-      () => modbusSource(null, 502, 4000, 14, 5, collector, clk),
-      /Host must be a non-empty string/,
+      () => {return modbusSource(null, 502, 4000, 14, 5, collector, clk)},
+      /Host must be a non-empty string/u,
       'Should reject null host'
     );
   });
@@ -28,8 +28,8 @@ describe('modbusSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     assert.throws(
-      () => modbusSource('192.168.2.148', -1, 4000, 14, 5, collector, clk),
-      /Port must be a positive number/,
+      () => {return modbusSource('192.168.2.148', -1, 4000, 14, 5, collector, clk)},
+      /Port must be a positive number/u,
       'Should reject negative port'
     );
   });
@@ -38,8 +38,8 @@ describe('modbusSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     assert.throws(
-      () => modbusSource('192.168.2.148', 502, -1, 14, 5, collector, clk),
-      /Address must be a non-negative number/,
+      () => {return modbusSource('192.168.2.148', 502, -1, 14, 5, collector, clk)},
+      /Address must be a non-negative number/u,
       'Should reject negative address'
     );
   });
@@ -48,8 +48,8 @@ describe('modbusSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     assert.throws(
-      () => modbusSource('192.168.2.148', 502, 4000, 0, 5, collector, clk),
-      /Count must be a positive number/,
+      () => {return modbusSource('192.168.2.148', 502, 4000, 0, 5, collector, clk)},
+      /Count must be a positive number/u,
       'Should reject zero count'
     );
   });
@@ -57,8 +57,8 @@ describe('modbusSource', () => {
   it('throws on missing collector', () => {
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     assert.throws(
-      () => modbusSource('192.168.2.148', 502, 4000, 14, 5, null, clk),
-      /Collector must have an accept\(\) method/,
+      () => {return modbusSource('192.168.2.148', 502, 4000, 14, 5, null, clk)},
+      /Collector must have an accept\(\) method/u,
       'Should reject null collector'
     );
   });
@@ -66,8 +66,8 @@ describe('modbusSource', () => {
   it('throws on missing clock', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => modbusSource('192.168.2.148', 502, 4000, 14, 5, collector, null),
-      /Clock must have a millis\(\) method/,
+      () => {return modbusSource('192.168.2.148', 502, 4000, 14, 5, collector, null)},
+      /Clock must have a millis\(\) method/u,
       'Should reject null clock'
     );
   });
@@ -101,7 +101,7 @@ describe('modbusSource', () => {
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const source = modbusSource(`\u00df${Math.random()}`, 502, 4000, 14, 5, collector, clk, log);
     source.start();
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise(resolve => { setTimeout(resolve, 200); });
     source.stop();
     assert.strictEqual(logged, true, 'Should log connection failure and retry');
   });
@@ -112,7 +112,7 @@ describe('modbusSource', () => {
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const source = modbusSource(`\u0420${Math.random()}`, 502, 4000, 14, 5, collector, clk, log);
     source.start();
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise(resolve => { setTimeout(resolve, 200); });
     source.stop();
     assert.strictEqual(true, true, 'Should not crash on unreachable host');
   });

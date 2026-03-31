@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { describe, it, before, after } from 'mocha';
+import { after, before, describe, it } from 'mocha';
 import { GenericContainer } from 'testcontainers';
 import mqtt from 'mqtt';
 import mqttSink from '../src/mqttSink.js';
@@ -23,7 +23,7 @@ describe('mqttSink integration', function() {
     await new Promise((resolve, reject) => {
       subscriber.on('connect', resolve);
       subscriber.on('error', reject);
-      setTimeout(() => reject(new Error('MQTT connection timeout')), 10000);
+      setTimeout(() => { reject(new Error('MQTT connection timeout')); }, 10000);
     });
   });
 
@@ -45,13 +45,13 @@ describe('mqttSink integration', function() {
     subscriber.on('message', (t, payload) => {
       received.push({ topic: t, payload: payload.toString() });
     });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     const sink = mqttSink(url);
     sink.start();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     const value = `${Math.random()}`;
     sink.write([{ topic, payload: value }]);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     sink.stop();
     assert.strictEqual(received.length >= 1, true, 'Subscriber should receive published record');
   });
@@ -66,13 +66,13 @@ describe('mqttSink integration', function() {
         received.push(payload.toString());
       }
     });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     const sink = mqttSink(url);
     sink.start();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     const text = `Данные температуры ${Math.random()}`;
     sink.write([{ topic, payload: text }]);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     sink.stop();
     assert.strictEqual(received.length >= 1, true, 'Subscriber should receive unicode payload');
   });
@@ -87,14 +87,14 @@ describe('mqttSink integration', function() {
         received.push(payload.toString());
       }
     });
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     const sink = mqttSink(url);
     sink.start();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     sink.stop();
     assert.throws(
-      () => sink.write([{ topic, payload: `${Math.random()}` }]),
-      /not connected/,
+      () => {return sink.write([{ topic, payload: `${Math.random()}` }])},
+      /not connected/u,
       'Should throw when writing after stop'
     );
   });

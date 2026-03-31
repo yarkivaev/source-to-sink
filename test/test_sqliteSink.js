@@ -9,16 +9,16 @@ import sqliteSink from '../src/sqliteSink.js';
 describe('sqliteSink', () => {
   it('throws on missing path', () => {
     assert.throws(
-      () => sqliteSink(null, 'metrics', ['ts', 'value']),
-      /Path must be a non-empty string/,
+      () => {return sqliteSink(null, 'metrics', ['ts', 'value'])},
+      /Path must be a non-empty string/u,
       'Should reject missing path'
     );
   });
 
   it('throws on empty path', () => {
     assert.throws(
-      () => sqliteSink('', 'metrics', ['ts', 'value']),
-      /Path must be a non-empty string/,
+      () => {return sqliteSink('', 'metrics', ['ts', 'value'])},
+      /Path must be a non-empty string/u,
       'Should reject empty path'
     );
   });
@@ -27,8 +27,8 @@ describe('sqliteSink', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sink-'));
     try {
       assert.throws(
-        () => sqliteSink(join(dir, 'db.sqlite'), null, ['ts', 'value']),
-        /Table must be a non-empty string/,
+        () => {return sqliteSink(join(dir, 'db.sqlite'), null, ['ts', 'value'])},
+        /Table must be a non-empty string/u,
         'Should reject missing table'
       );
     } finally {
@@ -40,8 +40,8 @@ describe('sqliteSink', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sink-'));
     try {
       assert.throws(
-        () => sqliteSink(join(dir, 'db.sqlite'), '', ['ts', 'value']),
-        /Table must be a non-empty string/,
+        () => {return sqliteSink(join(dir, 'db.sqlite'), '', ['ts', 'value'])},
+        /Table must be a non-empty string/u,
         'Should reject empty table'
       );
     } finally {
@@ -53,8 +53,8 @@ describe('sqliteSink', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sink-'));
     try {
       assert.throws(
-        () => sqliteSink(join(dir, 'db.sqlite'), 'metrics', null),
-        /Columns must be a non-empty array/,
+        () => {return sqliteSink(join(dir, 'db.sqlite'), 'metrics', null)},
+        /Columns must be a non-empty array/u,
         'Should reject missing columns'
       );
     } finally {
@@ -66,8 +66,8 @@ describe('sqliteSink', () => {
     const dir = mkdtempSync(join(tmpdir(), 'sink-'));
     try {
       assert.throws(
-        () => sqliteSink(join(dir, 'db.sqlite'), 'metrics', []),
-        /Columns must be a non-empty array/,
+        () => {return sqliteSink(join(dir, 'db.sqlite'), 'metrics', [])},
+        /Columns must be a non-empty array/u,
         'Should reject empty columns'
       );
     } finally {
@@ -119,11 +119,11 @@ describe('sqliteSink', () => {
     db.exec('CREATE TABLE metrics (topic TEXT, ts REAL, value REAL)');
     db.close();
     const count = 5 + Math.floor(Math.random() * 10);
-    const records = Array.from({ length: count }, (_, i) => ({
+    const records = Array.from({ length: count }, (_, i) => {return {
       topic: `tøpic/${Math.random()}`,
       ts: Date.now() + i,
       value: Math.random()
-    }));
+    }});
     try {
       const sink = sqliteSink(path, 'metrics', ['topic', 'ts', 'value']);
       sink.write(records);

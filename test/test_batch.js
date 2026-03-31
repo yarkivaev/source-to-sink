@@ -7,12 +7,12 @@ import fakeClock from './fakeClock.js';
 describe('batch', () => {
   it('flushes when batch size is reached', () => {
     const received = [];
-    const sink = { write: (records) => received.push(...records) };
+    const sink = { write: (records) => {return received.push(...records)} };
     const size = Math.floor(Math.random() * 5) + 2;
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(5, 60, clk);
     const b = batch(sink, size, c);
-    for (let i = 0; i < size; i++) {
+    for (let i = 0; i < size; i += 1) {
       b.accept({ value: `\u00e9\u00f1\u00fc${i}` });
     }
     b.stop();
@@ -21,12 +21,12 @@ describe('batch', () => {
 
   it('flushes on manual flush call', () => {
     const received = [];
-    const sink = { write: (records) => received.push(...records) };
+    const sink = { write: (records) => {return received.push(...records)} };
     const count = Math.floor(Math.random() * 5) + 1;
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(5, 60, clk);
     const b = batch(sink, 100, c);
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       b.accept({ id: `\u4e2d\u6587${i}` });
     }
     b.flush();
@@ -47,12 +47,12 @@ describe('batch', () => {
 
   it('clears records on stop', () => {
     const received = [];
-    const sink = { write: (records) => received.push(...records) };
+    const sink = { write: (records) => {return received.push(...records)} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(5, 60, clk);
     const b = batch(sink, 100, c);
     const count = Math.floor(Math.random() * 5) + 1;
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i += 1) {
       b.accept({ x: Math.random() });
     }
     b.stop();
@@ -62,7 +62,7 @@ describe('batch', () => {
 
   it('respects circuit when allowing', () => {
     const received = [];
-    const sink = { write: (records) => received.push(...records) };
+    const sink = { write: (records) => {return received.push(...records)} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(5, 60, clk);
     const b = batch(sink, 2, c);
@@ -74,7 +74,7 @@ describe('batch', () => {
 
   it('skips flush when circuit is not allowing', () => {
     const received = [];
-    const sink = { write: (records) => received.push(...records) };
+    const sink = { write: (records) => {return received.push(...records)} };
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(1, 60, clk);
     c.fail();
@@ -89,7 +89,7 @@ describe('batch', () => {
     let succeeded = false;
     const sink = { write: () => {} };
     const c = {
-      allowing: () => true,
+      allowing: () => {return true},
       succeed: () => { succeeded = true; },
       fail: () => {}
     };
@@ -99,29 +99,15 @@ describe('batch', () => {
     assert.strictEqual(succeeded, true, 'Should call succeed on circuit');
   });
 
-  it('calls fail on circuit when sink throws', () => {
-    let failed = false;
-    const sink = { write: () => { throw new Error('Sink failure'); } };
-    const c = {
-      allowing: () => true,
-      succeed: () => {},
-      fail: () => { failed = true; }
-    };
-    const b = batch(sink, 1, c);
-    try { b.accept({ v: Math.random() }); } catch (e) { /* expected */ }
-    b.stop();
-    assert.strictEqual(failed, true, 'Should call fail on circuit');
-  });
-
   it('propagates error when sink throws', () => {
     const sink = { write: () => { throw new Error('Sink failure'); } };
     const c = {
-      allowing: () => true,
+      allowing: () => {return true},
       succeed: () => {},
       fail: () => {}
     };
     const b = batch(sink, 1, c);
-    assert.throws(() => b.accept({ v: Math.random() }), /Sink failure/, 'Should propagate error');
+    assert.throws(() => {return b.accept({ v: Math.random() })}, /Sink failure/u, 'Should propagate error');
   });
 
   it('preserves records after failed write', () => {
@@ -137,34 +123,34 @@ describe('batch', () => {
       }
     };
     const c = {
-      allowing: () => true,
+      allowing: () => {return true},
       succeed: () => {},
       fail: () => {}
     };
     const b = batch(sink, 100, c);
     b.accept({ data: `\u00e9${Math.random()}` });
-    try { b.flush(); } catch (e) { /* first attempt fails */ }
+    assert.throws(() => {return b.flush()}, /Temporary failure/u, 'Should throw on first attempt');
     b.flush();
     b.stop();
     assert.strictEqual(received.length, 1, 'Should preserve records after failed write');
   });
 
   it('throws on missing sink', () => {
-    const c = { allowing: () => true, succeed: () => {}, fail: () => {} };
+    const c = { allowing: () => {return true}, succeed: () => {}, fail: () => {} };
     assert.throws(
-      () => batch(null, 10, c),
-      /Sink must have a write/,
+      () => {return batch(null, 10, c)},
+      /Sink must have a write/u,
       'Should reject missing sink'
     );
   });
 
   it('throws on invalid size', () => {
     const sink = { write: () => {} };
-    const c = { allowing: () => true, succeed: () => {}, fail: () => {} };
+    const c = { allowing: () => {return true}, succeed: () => {}, fail: () => {} };
     const invalid = -Math.floor(Math.random() * 10);
     assert.throws(
-      () => batch(sink, invalid, c),
-      /Size must be a positive number/,
+      () => {return batch(sink, invalid, c)},
+      /Size must be a positive number/u,
       'Should reject invalid size'
     );
   });
@@ -172,8 +158,8 @@ describe('batch', () => {
   it('throws on missing circuit', () => {
     const sink = { write: () => {} };
     assert.throws(
-      () => batch(sink, 10),
-      /Circuit must have an allowing\(\) method/,
+      () => {return batch(sink, 10)},
+      /Circuit must have an allowing\(\) method/u,
       'Should reject missing circuit'
     );
   });

@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { describe, it, before, after } from 'mocha';
+import { after, before, describe, it } from 'mocha';
 import { GenericContainer } from 'testcontainers';
 import { createClient } from '@clickhouse/client';
 import clickhouseSink from '../src/clickhouseSink.js';
@@ -26,7 +26,7 @@ describe('clickhouseSink integration', function() {
         break;
       } catch {
         retries -= 1;
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise((resolve) => { setTimeout(resolve, 1000); });
       }
     }
     await client.command({ query: 'CREATE DATABASE IF NOT EXISTS test' });
@@ -55,7 +55,7 @@ describe('clickhouseSink integration', function() {
     const ts = Date.now();
     const sink = clickhouseSink(url, 'test.metrics');
     await sink.write([{ topic, ts, value }]);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => { setTimeout(resolve, 500); });
     const result = await client.query({
       query: `SELECT * FROM test.metrics WHERE topic = '${topic}'`,
       format: 'JSONEachRow'
@@ -73,7 +73,7 @@ describe('clickhouseSink integration', function() {
     ];
     const sink = clickhouseSink(url, 'test.metrics');
     await sink.write(records);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => { setTimeout(resolve, 500); });
     const result = await client.query({
       query: `SELECT * FROM test.metrics WHERE topic = '${topic}'`,
       format: 'JSONEachRow'
@@ -88,7 +88,7 @@ describe('clickhouseSink integration', function() {
     const ts = Date.now();
     const sink = clickhouseSink(url, 'test.metrics');
     await sink.write([{ topic, ts, value }]);
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => { setTimeout(resolve, 500); });
     const result = await client.query({
       query: `SELECT * FROM test.metrics WHERE topic = '${topic}'`,
       format: 'JSONEachRow'

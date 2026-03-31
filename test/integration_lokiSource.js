@@ -1,5 +1,5 @@
 import assert from 'node:assert';
-import { describe, it, before, after } from 'mocha';
+import { after, before, describe, it } from 'mocha';
 import { GenericContainer } from 'testcontainers';
 import lokiSource from '../src/lokiSource.js';
 import clock from '../src/clock.js';
@@ -50,7 +50,7 @@ describe('lokiSource integration', function() {
         // Loki not ready yet
       }
       retries -= 1;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      await new Promise((resolve) => { setTimeout(resolve, 1000); });
     }
   });
 
@@ -65,13 +65,13 @@ describe('lokiSource integration', function() {
     this.timeout(30000);
     const received = [];
     const app = `app${Math.random().toString(36).slice(2)}`;
-    const collector = { accept: (entry) => received.push(entry) };
+    const collector = { accept: (entry) => {return received.push(entry)} };
     const clk = clock();
     const source = lokiSource(url, `{app="${app}"}`, 0.5, collector, clk);
     source.start();
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => { setTimeout(resolve, 500); });
     await pushToLoki(url, { app }, `test entry ${Math.random()}`);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => { setTimeout(resolve, 3000); });
     source.stop();
     assert.strictEqual(received.length >= 1, true, 'Should receive entries from Loki');
   });
@@ -80,13 +80,13 @@ describe('lokiSource integration', function() {
     this.timeout(30000);
     const received = [];
     const app = `app${Math.random().toString(36).slice(2)}`;
-    const collector = { accept: (entry) => received.push(entry) };
+    const collector = { accept: (entry) => {return received.push(entry)} };
     const clk = clock();
     const source = lokiSource(url, `{app="${app}"}`, 0.5, collector, clk);
     source.start();
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => { setTimeout(resolve, 500); });
     await pushToLoki(url, { app }, `тест запись ${Math.random()}`);
-    await new Promise((resolve) => setTimeout(resolve, 3000));
+    await new Promise((resolve) => { setTimeout(resolve, 3000); });
     source.stop();
     assert.strictEqual(received.length >= 1, true, 'Should receive entries with unicode');
   });
@@ -95,15 +95,15 @@ describe('lokiSource integration', function() {
     this.timeout(30000);
     const received = [];
     const app = `app${Math.random().toString(36).slice(2)}`;
-    const collector = { accept: (entry) => received.push(entry) };
+    const collector = { accept: (entry) => {return received.push(entry)} };
     const clk = clock();
     const source = lokiSource(url, `{app="${app}"}`, 0.5, collector, clk);
     source.start();
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
     source.stop();
-    const before = received.length;
+    const snapshot = received.length;
     await pushToLoki(url, { app }, `after stop ${Math.random()}`);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    assert.strictEqual(received.length, before, 'Should not receive entries after stop');
+    await new Promise((resolve) => { setTimeout(resolve, 2000); });
+    assert.strictEqual(received.length, snapshot, 'Should not receive entries after stop');
   });
 });

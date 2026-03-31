@@ -45,10 +45,10 @@ import pg from 'pg';
  * @returns {Array} Deduplicated records
  */
 export function deduplicate(records, keys) {
-  if (keys.length === 0) return records;
+  if (keys.length === 0) {return records;}
   const seen = new Map();
   for (const record of records) {
-    const key = keys.map(k => record[k]).join('\0');
+    const key = keys.map(k => {return record[k]}).join('\0');
     seen.set(key, record);
   }
   return Array.from(seen.values());
@@ -61,10 +61,10 @@ export function deduplicate(records, keys) {
  * @returns {string} SQL suffix or empty string
  */
 function buildSuffix(options) {
-  if (!Array.isArray(options.conflict) || options.conflict.length === 0) return '';
+  if (!Array.isArray(options.conflict) || options.conflict.length === 0) {return '';}
   const cols = options.conflict.join(', ');
   if (Array.isArray(options.update) && options.update.length > 0) {
-    const sets = options.update.map(c => `${c} = EXCLUDED.${c}`).join(', ');
+    const sets = options.update.map((col) => {return `${col} = EXCLUDED.${col}`}).join(', ');
     return ` ON CONFLICT (${cols}) DO UPDATE SET ${sets}`;
   }
   return ` ON CONFLICT (${cols}) DO NOTHING`;
@@ -92,13 +92,13 @@ export default function postgresSink(url, table, columns, options = {}) {
      */
     write(records) {
       const unique = deduplicate(records, conflict);
-      const placeholders = unique.map((_, i) => {
+      const placeholders = unique.map((record, i) => {
         const offset = i * columns.length;
-        const row = columns.map((__, j) => `$${offset + j + 1}`).join(', ');
+        const row = columns.map((__, j) => {return `$${offset + j + 1}`}).join(', ');
         return `(${row})`;
       }).join(', ');
       const query = `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${placeholders}${suffix}`;
-      const values = unique.flatMap((record) => columns.map((col) => record[col]));
+      const values = unique.flatMap((record) => {return columns.map((col) => {return record[col]})});
       return pool.query(query, values);
     }
   };

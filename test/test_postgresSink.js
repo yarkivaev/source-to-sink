@@ -5,48 +5,48 @@ import postgresSink, { deduplicate } from '../src/postgresSink.js';
 describe('postgresSink', () => {
   it('throws on missing url', () => {
     assert.throws(
-      () => postgresSink(null, 'metrics', ['ts', 'value']),
-      /URL must be a non-empty string/,
+      () => {return postgresSink(null, 'metrics', ['ts', 'value'])},
+      /URL must be a non-empty string/u,
       'Should reject missing url'
     );
   });
 
   it('throws on empty url', () => {
     assert.throws(
-      () => postgresSink('', 'metrics', ['ts', 'value']),
-      /URL must be a non-empty string/,
+      () => {return postgresSink('', 'metrics', ['ts', 'value'])},
+      /URL must be a non-empty string/u,
       'Should reject empty url'
     );
   });
 
   it('throws on missing table', () => {
     assert.throws(
-      () => postgresSink('postgresql://localhost:5432/db', null, ['ts', 'value']),
-      /Table must be a non-empty string/,
+      () => {return postgresSink('postgresql://localhost:5432/db', null, ['ts', 'value'])},
+      /Table must be a non-empty string/u,
       'Should reject missing table'
     );
   });
 
   it('throws on empty table', () => {
     assert.throws(
-      () => postgresSink('postgresql://localhost:5432/db', '', ['ts', 'value']),
-      /Table must be a non-empty string/,
+      () => {return postgresSink('postgresql://localhost:5432/db', '', ['ts', 'value'])},
+      /Table must be a non-empty string/u,
       'Should reject empty table'
     );
   });
 
   it('throws on missing columns', () => {
     assert.throws(
-      () => postgresSink('postgresql://localhost:5432/db', 'metrics', null),
-      /Columns must be a non-empty array/,
+      () => {return postgresSink('postgresql://localhost:5432/db', 'metrics', null)},
+      /Columns must be a non-empty array/u,
       'Should reject missing columns'
     );
   });
 
   it('throws on empty columns', () => {
     assert.throws(
-      () => postgresSink('postgresql://localhost:5432/db', 'metrics', []),
-      /Columns must be a non-empty array/,
+      () => {return postgresSink('postgresql://localhost:5432/db', 'metrics', [])},
+      /Columns must be a non-empty array/u,
       'Should reject empty columns'
     );
   });

@@ -95,14 +95,14 @@ export default function modbusSource(host, port, address, count, interval, colle
   }
   const client = new ModbusRTU();
   let state = idle();
-  const fetch = async () => {
+  async function fetch() {
     const result = await client.readHoldingRegisters(address, count);
     return [result.data];
-  };
+  }
   const maxDelay = 300;
   const source = pollingSource(fetch, interval, collector, clk);
   let delay = interval;
-  const attempt = () => {
+  function attempt() {
     client.connectTCP(host, { port }).then(() => {
       delay = interval;
       state = connected(client);
@@ -113,7 +113,7 @@ export default function modbusSource(host, port, address, count, interval, colle
       state = retrying(handle);
       delay = Math.min(delay * 2, maxDelay);
     });
-  };
+  }
   return {
     /**
      * Connects to the Modbus device and starts polling.

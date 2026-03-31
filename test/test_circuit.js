@@ -17,7 +17,7 @@ describe('circuit', () => {
     const timeout = Math.random() * 100 + 1;
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(threshold, timeout, clk);
-    for (let i = 0; i < threshold - 1; i++) {
+    for (let i = 0; i < threshold - 1; i += 1) {
       c.fail();
     }
     assert.strictEqual(c.allowing(), true, 'Circuit should remain allowing below threshold');
@@ -28,7 +28,7 @@ describe('circuit', () => {
     const timeout = Math.random() * 100 + 1;
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(threshold, timeout, clk);
-    for (let i = 0; i < threshold; i++) {
+    for (let i = 0; i < threshold; i += 1) {
       c.fail();
     }
     assert.strictEqual(c.allowing(), false, 'Circuit should stop allowing at threshold');
@@ -39,7 +39,7 @@ describe('circuit', () => {
     const timeout = Math.random() * 100 + 1;
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(threshold, timeout, clk);
-    for (let i = 0; i < threshold - 1; i++) {
+    for (let i = 0; i < threshold - 1; i += 1) {
       c.fail();
     }
     c.succeed();
@@ -52,7 +52,7 @@ describe('circuit', () => {
     const timeout = 60;
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(threshold, timeout, clk);
-    for (let i = 0; i < threshold; i++) {
+    for (let i = 0; i < threshold; i += 1) {
       c.fail();
     }
     clk.advance(timeout * 1000);
@@ -64,8 +64,8 @@ describe('circuit', () => {
     const invalid = -Math.floor(Math.random() * 10);
     const clk = fakeClock(0);
     assert.throws(
-      () => circuit(invalid, timeout, clk),
-      /Threshold must be a positive number/,
+      () => {return circuit(invalid, timeout, clk)},
+      /Threshold must be a positive number/u,
       'Should reject invalid threshold'
     );
   });
@@ -75,8 +75,8 @@ describe('circuit', () => {
     const invalid = -Math.random() * 10 - 1;
     const clk = fakeClock(0);
     assert.throws(
-      () => circuit(threshold, invalid, clk),
-      /Timeout must be a non-negative number/,
+      () => {return circuit(threshold, invalid, clk)},
+      /Timeout must be a non-negative number/u,
       'Should reject invalid timeout'
     );
   });
@@ -85,8 +85,8 @@ describe('circuit', () => {
     const threshold = Math.floor(Math.random() * 10) + 1;
     const timeout = Math.random() * 100 + 1;
     assert.throws(
-      () => circuit(threshold, timeout),
-      /Clock must have a millis\(\) method/,
+      () => {return circuit(threshold, timeout)},
+      /Clock must have a millis\(\) method/u,
       'Should reject missing clock'
     );
   });
@@ -96,12 +96,12 @@ describe('circuit', () => {
     const timeout = 60;
     const clk = fakeClock(Math.floor(Math.random() * 10000));
     const c = circuit(threshold, timeout, clk);
-    for (let i = 0; i < threshold; i++) {
+    for (let i = 0; i < threshold; i += 1) {
       c.fail();
     }
     clk.advance(timeout * 1000);
     c.allowing();
-    for (let i = 0; i < threshold - 1; i++) {
+    for (let i = 0; i < threshold - 1; i += 1) {
       c.fail();
     }
     assert.strictEqual(c.allowing(), true, 'Circuit should remain allowing after reset');

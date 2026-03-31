@@ -8,8 +8,8 @@ describe('lokiSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(0);
     assert.throws(
-      () => lokiSource(null, '{app="test"}', 10, collector, clk),
-      /URL must be a non-empty string/,
+      () => {return lokiSource(null, '{app="test"}', 10, collector, clk)},
+      /URL must be a non-empty string/u,
       'Should reject missing url'
     );
   });
@@ -18,8 +18,8 @@ describe('lokiSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(0);
     assert.throws(
-      () => lokiSource('', '{app="test"}', 10, collector, clk),
-      /URL must be a non-empty string/,
+      () => {return lokiSource('', '{app="test"}', 10, collector, clk)},
+      /URL must be a non-empty string/u,
       'Should reject empty url'
     );
   });
@@ -28,8 +28,8 @@ describe('lokiSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(0);
     assert.throws(
-      () => lokiSource('http://localhost:3100', '', 10, collector, clk),
-      /Query must be a non-empty string/,
+      () => {return lokiSource('http://localhost:3100', '', 10, collector, clk)},
+      /Query must be a non-empty string/u,
       'Should reject empty query'
     );
   });
@@ -38,8 +38,8 @@ describe('lokiSource', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(0);
     assert.throws(
-      () => lokiSource('http://localhost:3100', '{app="test"}', -1, collector, clk),
-      /Interval must be a positive number/,
+      () => {return lokiSource('http://localhost:3100', '{app="test"}', -1, collector, clk)},
+      /Interval must be a positive number/u,
       'Should reject invalid interval'
     );
   });
@@ -47,8 +47,8 @@ describe('lokiSource', () => {
   it('throws on missing collector', () => {
     const clk = fakeClock(0);
     assert.throws(
-      () => lokiSource('http://localhost:3100', '{app="test"}', 10, null, clk),
-      /Collector must have an accept\(\) method/,
+      () => {return lokiSource('http://localhost:3100', '{app="test"}', 10, null, clk)},
+      /Collector must have an accept\(\) method/u,
       'Should reject missing collector'
     );
   });
@@ -56,8 +56,8 @@ describe('lokiSource', () => {
   it('throws on missing clock', () => {
     const collector = { accept: () => {} };
     assert.throws(
-      () => lokiSource('http://localhost:3100', '{app="test"}', 10, collector, null),
-      /Clock must have a millis\(\) method/,
+      () => {return lokiSource('http://localhost:3100', '{app="test"}', 10, collector, null)},
+      /Clock must have a millis\(\) method/u,
       'Should reject missing clock'
     );
   });

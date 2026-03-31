@@ -6,7 +6,7 @@ describe('timedBatch', () => {
   it('flushes after interval expires', async () => {
     const received = [];
     const origin = {
-      accept: (record) => received.push(record),
+      accept: (record) => {return received.push(record)},
       flush: () => {},
       stop: () => {}
     };
@@ -15,7 +15,7 @@ describe('timedBatch', () => {
     const interval = 0.05;
     const timed = timedBatch(origin, interval);
     timed.accept({ data: `\u0410\u0411\u0412${Math.random()}` });
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => { setTimeout(resolve, 100); });
     timed.stop();
     assert.strictEqual(flushed, true, 'Should flush after interval');
   });
@@ -23,7 +23,7 @@ describe('timedBatch', () => {
   it('delegates accept to origin', () => {
     const received = [];
     const origin = {
-      accept: (record) => received.push(record),
+      accept: (record) => {return received.push(record)},
       flush: () => {},
       stop: () => {}
     };
@@ -65,14 +65,14 @@ describe('timedBatch', () => {
     let count = 0;
     const origin = {
       accept: () => {},
-      flush: () => { count++; },
+      flush: () => { count += 1; },
       stop: () => {}
     };
     const interval = 0.05;
     const timed = timedBatch(origin, interval);
     timed.accept({ z: Math.random() });
     timed.flush();
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => { setTimeout(resolve, 100); });
     timed.stop();
     assert.strictEqual(count, 1, 'Should not flush twice after manual flush');
   });
@@ -80,8 +80,8 @@ describe('timedBatch', () => {
   it('throws on missing accept method', () => {
     const origin = { flush: () => {}, stop: () => {} };
     assert.throws(
-      () => timedBatch(origin, 1),
-      /Origin must have an accept\(\) method/,
+      () => {return timedBatch(origin, 1)},
+      /Origin must have an accept\(\) method/u,
       'Should reject origin without accept'
     );
   });
@@ -89,8 +89,8 @@ describe('timedBatch', () => {
   it('throws on missing flush method', () => {
     const origin = { accept: () => {}, stop: () => {} };
     assert.throws(
-      () => timedBatch(origin, 1),
-      /Origin must have a flush\(\) method/,
+      () => {return timedBatch(origin, 1)},
+      /Origin must have a flush\(\) method/u,
       'Should reject origin without flush'
     );
   });
@@ -98,8 +98,8 @@ describe('timedBatch', () => {
   it('throws on missing stop method', () => {
     const origin = { accept: () => {}, flush: () => {} };
     assert.throws(
-      () => timedBatch(origin, 1),
-      /Origin must have a stop\(\) method/,
+      () => {return timedBatch(origin, 1)},
+      /Origin must have a stop\(\) method/u,
       'Should reject origin without stop'
     );
   });
@@ -108,8 +108,8 @@ describe('timedBatch', () => {
     const origin = { accept: () => {}, flush: () => {}, stop: () => {} };
     const invalid = -Math.random() * 10;
     assert.throws(
-      () => timedBatch(origin, invalid),
-      /Interval must be a positive number/,
+      () => {return timedBatch(origin, invalid)},
+      /Interval must be a positive number/u,
       'Should reject invalid interval'
     );
   });

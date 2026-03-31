@@ -5,16 +5,16 @@ import mqttSink from '../src/mqttSink.js';
 describe('mqttSink', () => {
   it('throws on empty url', () => {
     assert.throws(
-      () => mqttSink(''),
-      /URL must be a non-empty string/,
+      () => {return mqttSink('')},
+      /URL must be a non-empty string/u,
       'Should reject empty URL'
     );
   });
 
   it('throws on missing url', () => {
     assert.throws(
-      () => mqttSink(null),
-      /URL must be a non-empty string/,
+      () => {return mqttSink(null)},
+      /URL must be a non-empty string/u,
       'Should reject null URL'
     );
   });
@@ -37,8 +37,8 @@ describe('mqttSink', () => {
   it('throws on write when not connected', () => {
     const sink = mqttSink(`mqtt://\u00df${Math.random()}`);
     assert.throws(
-      () => sink.write([{ topic: `\u00e9${Math.random()}`, payload: `${Math.random()}` }]),
-      /Sink is not connected/,
+      () => {return sink.write([{ topic: `\u00e9${Math.random()}`, payload: `${Math.random()}` }])},
+      /Sink is not connected/u,
       'Should reject write when not connected'
     );
   });

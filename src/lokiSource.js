@@ -26,9 +26,9 @@ export default function lokiSource(url, query, interval, collector, clk) {
   if (typeof query !== 'string' || query.length === 0) {
     throw new Error('Query must be a non-empty string');
   }
-  const fetch = async (since, until) => {
+  async function fetch(since, until) {
     const params = new URLSearchParams({
-      query: query,
+      query,
       start: (since * 1000000).toString(),
       end: (until * 1000000).toString(),
       limit: '1000'
@@ -44,6 +44,6 @@ export default function lokiSource(url, query, interval, collector, clk) {
       }
     }
     return entries;
-  };
+  }
   return pollingSource(fetch, interval, collector, clk);
 }

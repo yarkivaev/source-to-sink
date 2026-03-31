@@ -30,7 +30,7 @@ export default function batch(sink, size, circuit) {
     throw new Error('Circuit must have an allowing() method');
   }
   let records = [];
-  const perform = () => {
+  function perform() {
     if (records.length === 0) {
       return;
     }
@@ -46,7 +46,7 @@ export default function batch(sink, size, circuit) {
       circuit.fail();
       throw err;
     }
-  };
+  }
   return {
     /**
      * Accepts a record into the batch.
