@@ -37,3 +37,4 @@ export { default as stompSource } from './src/stompSource.js';
 export { default as lokiSource } from './src/lokiSource.js';
 export { default as modbusSource } from './src/modbusSource.js';
 export { default as mqttSink } from './src/mqttSink.js';
+export { default as sqliteSink } from './src/sqliteSink.js';
