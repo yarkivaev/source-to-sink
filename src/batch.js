@@ -38,12 +38,20 @@ export default function batch(sink, size, circuit) {
       return;
     }
     const pending = records;
+    records = [];
     try {
-      sink.write(pending);
-      records = [];
-      circuit.succeed();
+      const result = sink.write(pending);
+      if (result && typeof result.then === 'function') {
+        result.then(
+          () => { circuit.succeed(); },
+          () => { circuit.fail(); records = pending.concat(records); }
+        );
+      } else {
+        circuit.succeed();
+      }
     } catch (err) {
       circuit.fail();
+      records = pending.concat(records);
       throw err;
     }
   }
