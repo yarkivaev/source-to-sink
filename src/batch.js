@@ -31,12 +31,8 @@ export default function batch(sink, size, circuit) {
   }
   let records = [];
   function perform() {
-    if (records.length === 0) {
-      return;
-    }
-    if (!circuit.allowing()) {
-      return;
-    }
+    if (records.length === 0) { return; }
+    if (!circuit.allowing()) { return; }
     const pending = records;
     records = [];
     try {

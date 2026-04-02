@@ -101,15 +101,13 @@ export default function stompSource(url, destination, collector, options = {}) {
       const channel = new stompit.Channel(failover);
       const subscribe = { destination, ack: 'client-individual' };
       channel.subscribe(subscribe, (err, message) => {
-        if (err) {
-          return;
-        }
-        message.readString('utf-8', (readErr, body) => {
-          if (readErr) {
-            return;
-          }
-          collector.accept({ destination, payload: body.toString() });
-          channel.ack(message);
+        if (err) { return; }
+        message.readString('utf-8', async (readErr, body) => {
+          if (readErr) { return; }
+          try {
+            await collector.accept({ destination, payload: body.toString() });
+            channel.ack(message);
+          } catch { channel.nack(message); }
         });
       });
       state = subscribed(channel);

@@ -83,6 +83,9 @@ export default function mqttSource(url, topics, collector, options = {}) {
           sessionExpiryInterval: options.sessionExpiryInterval || 3600
         } : undefined
       });
+      // @todo Implement manualAcknowledge to defer ack until batch writes to sink
+      // Currently MQTT.js auto-acks after this callback returns, before the batch
+      // flushes to the database. Up to 5 seconds of data may be lost on crash
       function handler(tp, message) {
         collector.accept({ topic: tp, payload: message.toString() });
       }
