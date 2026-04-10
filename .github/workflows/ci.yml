@@ -8,5 +8,5 @@ jobs:
   ci:
     uses: yarkivaev/npm-workflows/.github/workflows/ci.yml@main
     with:
-      node-version: '22'
+      node-version: '22.22.1'
       lint: true
