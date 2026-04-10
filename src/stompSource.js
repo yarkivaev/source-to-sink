@@ -99,15 +99,18 @@ export default function stompSource(url, destination, collector, options = {}) {
         maxReconnects: -1
       });
       const channel = new stompit.Channel(failover);
+      let pending = Promise.resolve();
       const subscribe = { destination, ack: 'client-individual' };
       channel.subscribe(subscribe, (err, message) => {
         if (err) { return; }
-        message.readString('utf-8', async (readErr, body) => {
+        message.readString('utf-8', (readErr, body) => {
           if (readErr) { return; }
-          try {
-            await collector.accept({ destination, payload: body.toString() });
-            channel.ack(message);
-          } catch { channel.nack(message); }
+          pending = pending.then(async () => {
+            try {
+              await collector.accept({ destination, payload: body.toString() });
+              channel.ack(message);
+            } catch { channel.nack(message); }
+          });
         });
       });
       state = subscribed(channel);
