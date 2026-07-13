@@ -14,6 +14,7 @@
  * - stompSend: one-shot STOMP publish (accepts URL)
  * - lokiSource: Loki polling source (accepts URL)
  * - modbusSource: Modbus TCP polling source (accepts host/port)
+ * - modbusRtuSource: Modbus RTU polling source (accepts serial path)
  * - mqttSink: MQTT publishing sink (accepts URL)
  *
  * @example
@@ -37,6 +38,6 @@ export { default as mqttSource } from './src/mqttSource.js';
 export { default as stompSource } from './src/stompSource.js';
 export { default as stompSend } from './src/stompSend.js';
 export { default as lokiSource } from './src/lokiSource.js';
-export { default as modbusSource } from './src/modbusSource.js';
+export { default as modbusSource, modbusRtuSource } from './src/modbusSource.js';
 export { default as mqttSink } from './src/mqttSink.js';
 export { default as sqliteSink } from './src/sqliteSink.js';
