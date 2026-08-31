@@ -1,7 +1,88 @@
 import assert from 'node:assert';
+import net from 'node:net';
 import { describe, it } from 'mocha';
 import modbusSource from '../src/modbusSource.js';
 import fakeClock from './fakeClock.js';
+
+/**
+ * TCP listener that counts concurrent sockets on an ephemeral port.
+ *
+ * @returns {Promise<object>} Gate with port, live, peak, close
+ */
+function countingListen() {
+    let live = 0;
+    let peak = 0;
+    const sockets = new Set();
+    const server = net.createServer((sock) => {
+        live += 1;
+        if (live > peak) {
+            peak = live;
+        }
+        sockets.add(sock);
+        sock.on('close', () => {
+            sockets.delete(sock);
+            live -= 1;
+        });
+    });
+    return new Promise((resolve) => {
+        server.listen(0, '127.0.0.1', () => {
+            resolve({
+                port: server.address().port,
+                live() {
+                    return live;
+                },
+                peak() {
+                    return peak;
+                },
+                close() {
+                    for (const sock of sockets) {
+                        sock.destroy();
+                    }
+                    return new Promise((done) => {
+                        server.close(done);
+                    });
+                }
+            });
+        });
+    });
+}
+
+/**
+ * Resolves after the given delay.
+ *
+ * @param {number} ms - Delay in milliseconds
+ * @returns {Promise<void>} Timer promise
+ */
+function settle(ms) {
+    return new Promise((resolve) => {
+        setTimeout(resolve, ms);
+    });
+}
+
+/**
+ * Waits until probe is true or the timeout elapses.
+ *
+ * @param {Function} probe - Condition
+ * @param {number} limit - Timeout in milliseconds
+ * @returns {Promise<void>} Resolves when probe holds
+ */
+function until(probe, limit) {
+    const deadline = Date.now() + limit;
+    function tick(resolve, reject) {
+        if (probe()) {
+            resolve();
+            return;
+        }
+        if (Date.now() >= deadline) {
+            reject(new Error('condition did not hold before timeout'));
+            return;
+        }
+        setTimeout(() => {
+            tick(resolve, reject);
+        }, 20);
+    }
+    return new Promise(tick);
+}
 
 describe('modbusSource', () => {
   it('throws on empty host', () => {
@@ -117,5 +198,74 @@ describe('modbusSource', () => {
     await new Promise(resolve => { setTimeout(resolve, 200); });
     source.stop();
     assert.strictEqual(true, true, 'Should not crash on unreachable host');
+  });
+
+  it('does not open a second TCP socket when start is called twice', async function() {
+    const gate = await countingListen();
+    const source = modbusSource(
+      '127.0.0.1',
+      gate.port,
+      4000,
+      14,
+      5,
+      { accept() {} },
+      fakeClock(1 + Math.floor(Math.random() * 100)),
+      { error() {} }
+    );
+    source.start();
+    await until(() => {
+      return gate.live() >= 1;
+    }, 2000);
+    source.start();
+    await settle(150);
+    const peak = gate.peak();
+    source.stop();
+    await gate.close();
+    assert.strictEqual(peak, 1, 'second start opened another Modbus TCP socket');
+  });
+
+  it('closes the TCP socket when stop is called after connect', async function() {
+    const gate = await countingListen();
+    const source = modbusSource(
+      '127.0.0.1',
+      gate.port,
+      4000,
+      14,
+      5,
+      { accept() {} },
+      fakeClock(3 + Math.floor(Math.random() * 100)),
+      { error() {} }
+    );
+    source.start();
+    await until(() => {
+      return gate.live() >= 1;
+    }, 2000);
+    source.stop();
+    await until(() => {
+      return gate.live() === 0;
+    }, 2000);
+    const live = gate.live();
+    await gate.close();
+    assert.strictEqual(live, 0, 'stop after connect left a Modbus TCP socket open');
+  });
+
+  it('does not keep a TCP socket when stop is called during connect', async function() {
+    const gate = await countingListen();
+    const source = modbusSource(
+      '127.0.0.1',
+      gate.port,
+      4000,
+      14,
+      5,
+      { accept() {} },
+      fakeClock(7 + Math.floor(Math.random() * 100)),
+      { error() {} }
+    );
+    source.start();
+    source.stop();
+    await settle(400);
+    const live = gate.live();
+    await gate.close();
+    assert.strictEqual(live, 0, 'stop during connect left a Modbus TCP socket open');
   });
 });

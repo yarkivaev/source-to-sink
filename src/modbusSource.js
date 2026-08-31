@@ -4,7 +4,7 @@ import pollingSource from './pollingSource.js';
 /**
  * Idle state for Modbus connection.
  *
- * @returns {object} State with connected() returning false and no retry handle
+ * @returns {object} State with no open attempt
  */
 function idle() {
   return {
@@ -12,6 +12,9 @@ function idle() {
       return false;
     },
     retrying() {
+      return false;
+    },
+    opening() {
       return false;
     }
   };
@@ -31,8 +34,30 @@ function retrying(handle) {
     retrying() {
       return true;
     },
+    opening() {
+      return false;
+    },
     cancel() {
       clearTimeout(handle);
+    }
+  };
+}
+
+/**
+ * In-flight TCP or RTU connect state.
+ *
+ * @returns {object} State with opening() returning true
+ */
+function opening() {
+  return {
+    connected() {
+      return false;
+    },
+    retrying() {
+      return false;
+    },
+    opening() {
+      return true;
     }
   };
 }
@@ -51,10 +76,42 @@ function connected(client) {
     retrying() {
       return false;
     },
+    opening() {
+      return false;
+    },
     disconnect() {
       client.close();
     }
   };
+}
+
+/**
+ * Starts one connect attempt and ignores results after stop().
+ *
+ * @param {object} bag - Mutable lifecycle bag
+ */
+function attempt(bag) {
+  const token = bag.epoch;
+  bag.state = opening();
+  bag.connect(bag.client).then(() => {
+    if (token !== bag.epoch) {
+      bag.client.close();
+      return;
+    }
+    bag.delay = bag.interval;
+    bag.state = connected(bag.client);
+    bag.source.start();
+  }).catch((err) => {
+    if (token !== bag.epoch) {
+      return;
+    }
+    bag.log.error(`Connection to ${bag.target} failed, retrying in ${bag.delay}s: ${err.message}`);
+    const handle = setTimeout(() => {
+      attempt(bag);
+    }, bag.delay * 1000);
+    bag.state = retrying(handle);
+    bag.delay = Math.min(bag.delay * 2, bag.maxDelay);
+  });
 }
 
 /**
@@ -64,60 +121,42 @@ function connected(client) {
  * @returns {object} Source with start() and stop() methods
  */
 function modbusPollingSource(options) {
-  const {
-    connect,
-    target,
-    address,
-    count,
-    interval,
-    collector,
-    clk,
-    client,
-    log
-  } = options;
-  let state = idle();
+  const { address, count, interval, collector, clk, client } = options;
   async function fetch() {
     const result = await client.readHoldingRegisters(address, count);
     return [result.data];
   }
-  const maxDelay = 300;
-  const source = pollingSource(fetch, interval, collector, clk);
-  let delay = interval;
-  function attempt() {
-    connect(client).then(() => {
-      delay = interval;
-      state = connected(client);
-      source.start();
-    }).catch((err) => {
-      log.error(`Connection to ${target} failed, retrying in ${delay}s: ${err.message}`);
-      const handle = setTimeout(attempt, delay * 1000);
-      state = retrying(handle);
-      delay = Math.min(delay * 2, maxDelay);
-    });
-  }
+  const bag = {
+    ...options,
+    state: idle(),
+    epoch: 0,
+    maxDelay: 300,
+    source: pollingSource(fetch, interval, collector, clk),
+    delay: interval
+  };
   return {
     /**
      * Connects to the Modbus device and starts polling.
      */
     start() {
-      if (state.connected() || state.retrying()) {
+      if (bag.state.connected() || bag.state.retrying() || bag.state.opening()) {
         return;
       }
-      attempt();
+      attempt(bag);
     },
     /**
      * Stops polling and disconnects from the Modbus device.
      */
     stop() {
-      source.stop();
-      if (state.retrying()) {
-        state.cancel();
-        state = idle();
+      bag.epoch += 1;
+      bag.source.stop();
+      if (bag.state.retrying()) {
+        bag.state.cancel();
       }
-      if (state.connected()) {
-        state.disconnect();
-        state = idle();
+      if (bag.state.connected() || bag.state.opening()) {
+        bag.client.close();
       }
+      bag.state = idle();
     }
   };
 }
