@@ -108,4 +108,31 @@ describe('postgresSink', () => {
     const result = deduplicate(records, []);
     assert.strictEqual(result.length, 2, 'Should not deduplicate without conflict columns');
   });
+
+  it('reuses an injected pool when writing', async () => {
+    const queries = [];
+    const pool = {
+      query(sql, values) {
+        queries.push({ sql, values });
+        return Promise.resolve({ rowCount: 1 });
+      }
+    };
+    const sink = postgresSink('postgresql://localhost:5432/db', 'metrics', ['ts', 'value'], { pool });
+    await sink.write([{ ts: 1700000000, value: 42 }]);
+    assert.strictEqual(queries.length, 1, 'injected pool was not used for write');
+  });
+
+  it('routes write through an explicit client when provided', async () => {
+    const pool = { query() { return Promise.reject(new Error('pool must not be used')); } };
+    const clientQueries = [];
+    const client = {
+      query(sql, values) {
+        clientQueries.push({ sql, values });
+        return Promise.resolve({ rowCount: 1 });
+      }
+    };
+    const sink = postgresSink('postgresql://localhost:5432/db', 'metrics', ['ts', 'value'], { pool });
+    await sink.write([{ ts: 1700000001, value: 7 }], client);
+    assert.strictEqual(clientQueries.length, 1, 'explicit client was not used for write');
+  });
 });

@@ -51,4 +51,13 @@ describe('stompSource', () => {
     assert.strictEqual(typeof source.start, 'function', 'Should have start method');
     assert.strictEqual(typeof source.stop, 'function', 'Should have stop method');
   });
+
+  it('accepts manualAck and serial options without throwing', () => {
+    const collector = { accept: () => {} };
+    const source = stompSource('stomp://localhost:61613', '/queue/test', collector, {
+      manualAck: true,
+      serial: false
+    });
+    assert.strictEqual(typeof source.start, 'function', 'manualAck source missing start');
+  });
 });
