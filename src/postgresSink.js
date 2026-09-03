@@ -1,31 +1,6 @@
 import pg from 'pg';
 
 /**
- * PostgreSQL sink for batch record insertion.
- *
- * Creates a pg.Pool internally and implements the Sink
- * interface for use with batch collectors. Supports optional
- * conflict resolution via ON CONFLICT DO NOTHING or
- * ON CONFLICT DO UPDATE SET.
- *
- * @example
- * const sink = postgresSink('postgresql://localhost:5432/db', 'metrics', ['ts', 'value']);
- * await sink.write([{ ts: Date.now(), value: 42 }]);
- *
- * @example
- * const sink = postgresSink('postgresql://localhost:5432/db', 'segments',
- *   ['machine', 'name', 'start_time'], { conflict: ['machine', 'start_time'] });
- * await sink.write([{ machine: 'a', name: 'on', start_time: '2024-01-01' }]);
- *
- * @param {string} url - PostgreSQL URL (e.g., 'postgresql://localhost:5432/db')
- * @param {string} table - Target table name
- * @param {Array<string>} columns - Column names for insertion
- * @param {object} [options] - Optional configuration
- * @param {Array<string>} [options.conflict] - Columns for ON CONFLICT clause
- * @param {Array<string>} [options.update] - Columns for DO UPDATE SET clause
- * @returns {object} Sink with write(records) method
- */
-/**
  * Removes duplicate records by conflict key within a batch.
  *
  * PostgreSQL rejects INSERT batches where ON CONFLICT would update
@@ -70,6 +45,31 @@ function buildSuffix(options) {
   return ` ON CONFLICT (${cols}) DO NOTHING`;
 }
 
+/**
+ * PostgreSQL sink for batch record insertion.
+ *
+ * Creates a pg.Pool internally unless `options.pool` is supplied.
+ * Supports optional conflict resolution via ON CONFLICT DO NOTHING or
+ * ON CONFLICT DO UPDATE SET. `write` accepts an optional queryable
+ * client so callers can run inserts inside an existing transaction.
+ *
+ * @example
+ * const sink = postgresSink('postgresql://localhost:5432/db', 'metrics', ['ts', 'value']);
+ * await sink.write([{ ts: Date.now(), value: 42 }]);
+ *
+ * @example
+ * const sink = postgresSink(url, 'segments', cols, { pool, conflict: ['machine', 'start_time'] });
+ * await sink.write([{ machine: 'a', name: 'on', start_time: '2024-01-01' }], client);
+ *
+ * @param {string} url - PostgreSQL URL (e.g., 'postgresql://localhost:5432/db')
+ * @param {string} table - Target table name
+ * @param {Array<string>} columns - Column names for insertion
+ * @param {object} [options] - Optional configuration
+ * @param {Array<string>} [options.conflict] - Columns for ON CONFLICT clause
+ * @param {Array<string>} [options.update] - Columns for DO UPDATE SET clause
+ * @param {object} [options.pool] - Existing pg Pool to reuse
+ * @returns {object} Sink with write(records, client?) method
+ */
 export default function postgresSink(url, table, columns, options = {}) {
   if (typeof url !== 'string' || url.length === 0) {
     throw new Error('URL must be a non-empty string');
@@ -80,7 +80,7 @@ export default function postgresSink(url, table, columns, options = {}) {
   if (!Array.isArray(columns) || columns.length === 0) {
     throw new Error('Columns must be a non-empty array');
   }
-  const pool = new pg.Pool({ connectionString: url });
+  const pool = options.pool || new pg.Pool({ connectionString: url });
   const suffix = buildSuffix(options);
   const conflict = Array.isArray(options.conflict) ? options.conflict : [];
   return {
@@ -88,9 +88,10 @@ export default function postgresSink(url, table, columns, options = {}) {
      * Writes records to PostgreSQL table.
      *
      * @param {Array} records - Array of objects with keys matching columns
+     * @param {object} [client] - Optional pg client/pool with query()
      * @returns {Promise} Promise resolving when insert completes
      */
-    write(records) {
+    write(records, client) {
       const unique = deduplicate(records, conflict);
       const placeholders = unique.map((record, i) => {
         const offset = i * columns.length;
@@ -99,7 +100,8 @@ export default function postgresSink(url, table, columns, options = {}) {
       }).join(', ');
       const query = `INSERT INTO ${table} (${columns.join(', ')}) VALUES ${placeholders}${suffix}`;
       const values = unique.flatMap((record) => {return columns.map((col) => {return record[col]})});
-      return pool.query(query, values);
+      const runner = client && typeof client.query === 'function' ? client : pool;
+      return runner.query(query, values);
     }
   };
 }

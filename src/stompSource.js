@@ -31,30 +31,6 @@ function subscribed(channel) {
 }
 
 /**
- * STOMP subscription source for streaming messages to a collector.
- *
- * Subscribes to a STOMP destination and forwards raw messages to the collector.
- * Messages are passed as {destination, payload} objects without parsing.
- * Uses ConnectFailover for automatic reconnection with exponential backoff
- * and Channel for transparent re-subscription. Acknowledges messages only
- * after the collector has accepted them.
- *
- * @example
- * const source = stompSource('stomp://localhost:61613', '/queue/sensors', collector);
- * source.start();
- * // ... later
- * source.stop();
- *
- * @param {string} url - STOMP broker URL (e.g., 'stomp://localhost:61613')
- * @param {string} destination - STOMP destination to subscribe (e.g., '/queue/sensors')
- * @param {object} collector - Collector with accept() method receiving {destination, payload}
- * @param {object} [options] - Optional STOMP connection options
- * @param {string} [options.login] - Login for STOMP auth
- * @param {string} [options.passcode] - Passcode for STOMP auth
- * @param {string} [options.host] - Virtual host for STOMP connection
- * @returns {object} Source with start() and stop() methods
- */
-/**
  * Builds STOMP server configuration from a URL.
  *
  * @param {URL} parsed - Parsed URL object
@@ -73,6 +49,98 @@ function serverConfig(parsed, options) {
   };
 }
 
+/**
+ * Builds settle helpers for one STOMP frame.
+ *
+ * @param {object} channel - STOMP channel
+ * @param {object} message - STOMP frame
+ * @returns {{ ack: Function, nack: Function }}
+ */
+function settleOf(channel, message) {
+  return {
+    ack() {
+      channel.ack(message);
+    },
+    nack() {
+      channel.nack(message);
+    }
+  };
+}
+
+/**
+ * Delivers one STOMP body to the collector and settles the frame.
+ *
+ * @param {object} ctx - delivery context with channel/message/destination/collector/manualAck
+ * @param {string} body - UTF-8 payload
+ * @returns {Promise<void>}
+ */
+async function deliver(ctx, body) {
+  const settle = settleOf(ctx.channel, ctx.message);
+  try {
+    await ctx.collector.accept({ destination: ctx.destination, payload: body, settle });
+    if (!ctx.manualAck) {
+      settle.ack();
+    }
+  } catch (error) {
+    if (!ctx.manualAck) {
+      settle.nack();
+    }
+    throw error;
+  }
+}
+
+/**
+ * Ignores a rejected delivery promise when running non-serial.
+ *
+ * @param {Error} error - rejected reason
+ * @returns {undefined}
+ */
+function ignoreDelivery(error) {
+  return error;
+}
+
+/**
+ * Subscribes a channel and routes frames to the collector.
+ *
+ * @param {object} channel - STOMP channel
+ * @param {string} destination - queue destination
+ * @param {object} collector - message collector
+ * @param {boolean} serial - global serial delivery
+ * @param {boolean} manualAck - collector settles frames
+ * @returns {undefined}
+ */
+function bind(channel, destination, collector, serial, manualAck) {
+  let pending = Promise.resolve();
+  channel.subscribe({ destination, ack: 'client-individual' }, (err, message) => {
+    if (err) { return; }
+    message.readString('utf-8', (readErr, body) => {
+      if (readErr) { return; }
+      const ctx = { channel, message, destination, collector, manualAck };
+      function work() {
+        return deliver(ctx, body.toString());
+      }
+      if (serial) {
+        pending = pending.then(work, work);
+      } else {
+        void work().catch(ignoreDelivery);
+      }
+    });
+  });
+}
+
+/**
+ * STOMP subscription source for streaming messages to a collector.
+ *
+ * Messages are `{destination, payload, settle}`. Default ack-after-accept;
+ * with `manualAck` the collector owns settle. With `serial: false`
+ * deliveries are not globally sequenced.
+ *
+ * @param {string} url - STOMP broker URL
+ * @param {string} destination - STOMP destination
+ * @param {object} collector - Collector with accept()
+ * @param {object} [options] - Connection and delivery options
+ * @returns {object} Source with start() and stop() methods
+ */
 export default function stompSource(url, destination, collector, options = {}) {
   if (typeof url !== 'string' || url.length === 0) {
     throw new Error('URL must be a non-empty string');
@@ -84,11 +152,10 @@ export default function stompSource(url, destination, collector, options = {}) {
     throw new Error('Collector must have an accept() method');
   }
   const parsed = new URL(url);
+  const serial = options.serial !== false;
+  const manualAck = options.manualAck === true;
   let state = idle();
   return {
-    /**
-     * Starts subscribing to the STOMP destination.
-     */
     start() {
       if (state.subscribed()) {
         return;
@@ -99,25 +166,9 @@ export default function stompSource(url, destination, collector, options = {}) {
         maxReconnects: -1
       });
       const channel = new stompit.Channel(failover);
-      let pending = Promise.resolve();
-      const subscribe = { destination, ack: 'client-individual' };
-      channel.subscribe(subscribe, (err, message) => {
-        if (err) { return; }
-        message.readString('utf-8', (readErr, body) => {
-          if (readErr) { return; }
-          pending = pending.then(async () => {
-            try {
-              await collector.accept({ destination, payload: body.toString() });
-              channel.ack(message);
-            } catch { channel.nack(message); }
-          });
-        });
-      });
+      bind(channel, destination, collector, serial, manualAck);
       state = subscribed(channel);
     },
-    /**
-     * Stops subscribing to the STOMP destination.
-     */
     stop() {
       if (!state.subscribed()) {
         return;
