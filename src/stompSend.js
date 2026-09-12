@@ -7,6 +7,20 @@ import stompit from 'stompit';
  * @param {object} options - Connection options
  * @returns {object} stompit connect parameters
  */
+/**
+ * STOMP SEND headers that persist the body on a durable RabbitMQ queue.
+ *
+ * @param {string} destination - STOMP destination
+ * @returns {object} headers including persistent true
+ */
+export function stompHeaders(destination) {
+    return {
+        destination,
+        'content-type': 'application/json',
+        persistent: 'true'
+    };
+}
+
 function connectParams(parsed, options) {
     return {
         host: parsed.hostname,
@@ -55,10 +69,7 @@ export default function stompSend(url, destination, payload, options = {}) {
                 reject(error);
                 return;
             }
-            const frame = client.send({
-                destination,
-                'content-type': 'application/json'
-            });
+            const frame = client.send(stompHeaders(destination));
             frame.end(body);
             client.disconnect((disconnectError) => {
                 if (disconnectError) {

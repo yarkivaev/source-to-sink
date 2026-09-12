@@ -1,6 +1,6 @@
 import assert from 'node:assert';
 import { describe, it } from 'mocha';
-import stompSend from '../src/stompSend.js';
+import stompSend, { stompHeaders } from '../src/stompSend.js';
 
 describe('stompSend', () => {
     it('throws on missing url', () => {
@@ -20,6 +20,15 @@ describe('stompSend', () => {
             },
             /Destination must be a non-empty string/u,
             'Should reject empty destination'
+        );
+    });
+
+    it('marks SEND frames persistent', () => {
+        const destination = `/exchange/\u00e9${Math.random().toString(36).slice(2)}`;
+        assert.strictEqual(
+            stompHeaders(destination).persistent,
+            'true',
+            'stompSend did not mark the frame persistent'
         );
     });
 
