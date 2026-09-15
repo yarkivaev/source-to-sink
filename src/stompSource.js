@@ -1,4 +1,5 @@
 import stompit from 'stompit';
+import follow from './follow.js';
 
 /**
  * Idle state for STOMP source.
@@ -90,41 +91,46 @@ async function deliver(ctx, body) {
 }
 
 /**
- * Ignores a rejected delivery promise when running non-serial.
+ * Reads one STOMP frame body as text.
  *
- * @param {Error} error - rejected reason
- * @returns {undefined}
+ * @param {object} message - STOMP frame
+ * @returns {Promise<string>} UTF-8 body
  */
-function ignoreDelivery(error) {
-  return error;
+function read(message) {
+  return new Promise((resolve, reject) => {
+    message.readString('utf-8', (error, body) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(body.toString());
+    });
+  });
 }
 
 /**
  * Subscribes a channel and routes frames to the collector.
+ * Arrivals stay in subscribe order through follow, even when persist overlaps.
  *
  * @param {object} channel - STOMP channel
  * @param {string} destination - queue destination
  * @param {object} collector - message collector
- * @param {boolean} serial - global serial delivery
+ * @param {boolean} serial - wait for persist before the next arrival
  * @param {boolean} manualAck - collector settles frames
  * @returns {undefined}
  */
 function bind(channel, destination, collector, serial, manualAck) {
   let pending = Promise.resolve();
   channel.subscribe({ destination, ack: 'client-individual' }, (err, message) => {
-    if (err) { return; }
-    message.readString('utf-8', (readErr, body) => {
-      if (readErr) { return; }
-      const ctx = { channel, message, destination, collector, manualAck };
-      function work() {
-        return deliver(ctx, body.toString());
-      }
-      if (serial) {
-        pending = pending.then(work, work);
-      } else {
-        void work().catch(ignoreDelivery);
-      }
-    });
+    if (err) {
+      return;
+    }
+    const ctx = { channel, message, destination, collector, manualAck };
+    pending = follow(pending, () => {
+      return read(message);
+    }, (body) => {
+      return deliver(ctx, body);
+    }, serial);
   });
 }
 
@@ -132,8 +138,8 @@ function bind(channel, destination, collector, serial, manualAck) {
  * STOMP subscription source for streaming messages to a collector.
  *
  * Messages are `{destination, payload, settle}`. Default ack-after-accept;
- * with `manualAck` the collector owns settle. With `serial: false`
- * deliveries are not globally sequenced.
+ * with `manualAck` the collector owns settle. Arrivals enqueue in
+ * subscribe order. With `serial: false` persist may overlap after enqueue.
  *
  * @param {string} url - STOMP broker URL
  * @param {string} destination - STOMP destination

@@ -122,6 +122,28 @@ describe('postgresSink', () => {
     assert.strictEqual(queries.length, 1, 'injected pool was not used for write');
   });
 
+  it('appends updateWhere to the conflict update', async () => {
+    const queries = [];
+    const pool = {
+      query(sql) {
+        queries.push(sql);
+        return Promise.resolve({ rowCount: 1 });
+      }
+    };
+    const sink = postgresSink('postgresql://localhost:5432/db', 'segments',
+      ['machine', 'duration'], {
+        pool,
+        conflict: ['machine'],
+        update: ['duration'],
+        updateWhere: 'segments.duration = 0 OR EXCLUDED.duration > 0'
+      });
+    await sink.write([{ machine: `ä-${Math.random()}`, duration: 0 }]);
+    assert.ok(
+      queries[0].includes('WHERE segments.duration = 0 OR EXCLUDED.duration > 0'),
+      'conflict update did not keep the monotonic duration guard'
+    );
+  });
+
   it('routes write through an explicit client when provided', async () => {
     const pool = { query() { return Promise.reject(new Error('pool must not be used')); } };
     const clientQueries = [];

@@ -32,7 +32,7 @@ export function deduplicate(records, keys) {
 /**
  * Builds the ON CONFLICT SQL suffix from options.
  *
- * @param {object} options - Sink options with conflict and update arrays
+ * @param {object} options - Sink options with conflict, update, and optional updateWhere
  * @returns {string} SQL suffix or empty string
  */
 function buildSuffix(options) {
@@ -40,7 +40,10 @@ function buildSuffix(options) {
   const cols = options.conflict.join(', ');
   if (Array.isArray(options.update) && options.update.length > 0) {
     const sets = options.update.map((col) => {return `${col} = EXCLUDED.${col}`}).join(', ');
-    return ` ON CONFLICT (${cols}) DO UPDATE SET ${sets}`;
+    const guard = typeof options.updateWhere === 'string' && options.updateWhere.length > 0
+      ? ` WHERE ${options.updateWhere}`
+      : '';
+    return ` ON CONFLICT (${cols}) DO UPDATE SET ${sets}${guard}`;
   }
   return ` ON CONFLICT (${cols}) DO NOTHING`;
 }
@@ -67,6 +70,7 @@ function buildSuffix(options) {
  * @param {object} [options] - Optional configuration
  * @param {Array<string>} [options.conflict] - Columns for ON CONFLICT clause
  * @param {Array<string>} [options.update] - Columns for DO UPDATE SET clause
+ * @param {string} [options.updateWhere] - Optional WHERE guard on DO UPDATE
  * @param {object} [options.pool] - Existing pg Pool to reuse
  * @returns {object} Sink with write(records, client?) method
  */
