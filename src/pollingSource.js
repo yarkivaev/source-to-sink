@@ -64,14 +64,17 @@ export default function pollingSource(fetch, interval, collector, clk) {
   }
   let state = idle();
   let since = clk.millis();
-  async function poll() {
+  function poll() {
     const from = since;
     const until = clk.millis();
     since = until;
-    const result = await fetch(from, until);
-    for (const entry of result) {
-      collector.accept(entry);
-    }
+    Promise.resolve(fetch(from, until)).then((result) => {
+      for (const entry of result) {
+        collector.accept(entry);
+      }
+    }).catch(() => {
+      return undefined;
+    });
   }
   return {
     /**
