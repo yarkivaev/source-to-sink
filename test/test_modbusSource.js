@@ -60,6 +60,27 @@ function settle(ms) {
 }
 
 /**
+ * Collects unhandledRejection events until stop().
+ *
+ * @returns {object} Collector with seen() and stop()
+ */
+function watchRejects() {
+    const seen = [];
+    function onReject(err) {
+        seen.push(err);
+    }
+    process.on('unhandledRejection', onReject);
+    return {
+        seen() {
+            return seen.length;
+        },
+        stop() {
+            process.off('unhandledRejection', onReject);
+        }
+    };
+}
+
+/**
  * Waits until probe is true or the timeout elapses.
  *
  * @param {Function} probe - Condition
@@ -198,6 +219,28 @@ describe('modbusSource', () => {
     await new Promise(resolve => { setTimeout(resolve, 200); });
     source.stop();
     assert.strictEqual(true, true, 'Should not crash on unreachable host');
+  });
+
+  it('does not emit unhandled rejection after connection retry', async function() {
+    this.timeout(4000);
+    const watch = watchRejects();
+    const log = { error() {} };
+    const port = 65000 + Math.floor(Math.random() * 500);
+    const source = modbusSource(
+      '127.0.0.1',
+      port,
+      4000,
+      14,
+      0.05,
+      { accept() {} },
+      fakeClock(1 + Math.floor(Math.random() * 100)),
+      log
+    );
+    source.start();
+    await settle(400);
+    source.stop();
+    watch.stop();
+    assert.strictEqual(watch.seen(), 0, 'retry leaked an unhandled rejection');
   });
 
   it('does not open a second TCP socket when start is called twice', async function() {

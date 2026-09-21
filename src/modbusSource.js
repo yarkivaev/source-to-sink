@@ -86,6 +86,28 @@ function connected(client) {
 }
 
 /**
+ * Destroys a Modbus client without throwing if already closed.
+ *
+ * @param {object} client - ModbusRTU client
+ */
+function drop(client) {
+  if (client && typeof client.destroy === 'function') {
+    client.destroy(() => {
+      return undefined;
+    });
+  }
+}
+
+/**
+ * Builds a ModbusRTU client for one connect attempt.
+ *
+ * @returns {object} Fresh ModbusRTU client
+ */
+function create() {
+  return new ModbusRTU();
+}
+
+/**
  * Starts one connect attempt and ignores results after stop().
  *
  * @param {object} bag - Mutable lifecycle bag
@@ -93,9 +115,11 @@ function connected(client) {
 function attempt(bag) {
   const token = bag.epoch;
   bag.state = opening();
+  drop(bag.client);
+  bag.client = bag.create();
   bag.connect(bag.client).then(() => {
     if (token !== bag.epoch) {
-      bag.client.close();
+      drop(bag.client);
       return;
     }
     bag.delay = bag.interval;
@@ -105,6 +129,7 @@ function attempt(bag) {
     if (token !== bag.epoch) {
       return;
     }
+    drop(bag.client);
     bag.log.error(`Connection to ${bag.target} failed, retrying in ${bag.delay}s: ${err.message}`);
     const handle = setTimeout(() => {
       attempt(bag);
@@ -121,19 +146,20 @@ function attempt(bag) {
  * @returns {object} Source with start() and stop() methods
  */
 function modbusPollingSource(options) {
-  const { address, count, interval, collector, clk, client } = options;
-  async function fetch() {
-    const result = await client.readHoldingRegisters(address, count);
-    return [result.data];
-  }
+  const { address, count, interval, collector, clk } = options;
   const bag = {
     ...options,
+    client: undefined,
     state: idle(),
     epoch: 0,
     maxDelay: 300,
-    source: pollingSource(fetch, interval, collector, clk),
     delay: interval
   };
+  async function fetch() {
+    const result = await bag.client.readHoldingRegisters(address, count);
+    return [result.data];
+  }
+  bag.source = pollingSource(fetch, interval, collector, clk);
   return {
     /**
      * Connects to the Modbus device and starts polling.
@@ -153,9 +179,8 @@ function modbusPollingSource(options) {
       if (bag.state.retrying()) {
         bag.state.cancel();
       }
-      if (bag.state.connected() || bag.state.opening()) {
-        bag.client.close();
-      }
+      drop(bag.client);
+      bag.client = undefined;
       bag.state = idle();
     }
   };
@@ -195,11 +220,11 @@ export default function modbusSource(host, port, address, count, interval, colle
   if (typeof count !== 'number' || count <= 0) {
     throw new Error(`Count must be a positive number, got: ${count}`);
   }
-  const client = new ModbusRTU();
   function connect(modbusClient) {
     return modbusClient.connectTCP(host, { port });
   }
   return modbusPollingSource({
+    create,
     connect,
     target: `${host}:${port}`,
     address,
@@ -207,7 +232,6 @@ export default function modbusSource(host, port, address, count, interval, colle
     interval,
     collector,
     clk,
-    client,
     log
   });
 }
@@ -248,7 +272,6 @@ export function modbusRtuSource(path, serial, address, count, interval, collecto
   if (typeof count !== 'number' || count <= 0) {
     throw new Error(`Count must be a positive number, got: ${count}`);
   }
-  const client = new ModbusRTU();
   const slaveId = serial.slaveId || 1;
   const dataBits = serial.dataBits || 8;
   const stopBits = serial.stopBits || 1;
@@ -264,6 +287,7 @@ export function modbusRtuSource(path, serial, address, count, interval, collecto
     });
   }
   return modbusPollingSource({
+    create,
     connect,
     target: path,
     address,
@@ -271,7 +295,6 @@ export function modbusRtuSource(path, serial, address, count, interval, collecto
     interval,
     collector,
     clk,
-    client,
     log
   });
 }

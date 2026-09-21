@@ -91,6 +91,26 @@ describe('pollingSource', () => {
     assert.strictEqual(count, before, 'Should stop polling after stop');
   });
 
+  it('does not emit unhandled rejection when fetch rejects', async () => {
+    const seen = [];
+    function onReject(err) {
+      seen.push(err);
+    }
+    process.on('unhandledRejection', onReject);
+    const label = `\u00e9${Math.random()}`;
+    const fetch = () => {
+      return Promise.reject(new Error(label));
+    };
+    const source = pollingSource(fetch, 0.03, { accept() {} }, fakeClock(1 + Math.floor(Math.random() * 100)));
+    source.start();
+    await new Promise((resolve) => {
+      setTimeout(resolve, 80);
+    });
+    source.stop();
+    process.off('unhandledRejection', onReject);
+    assert.strictEqual(seen.length, 0, 'poll rejection leaked as unhandled');
+  });
+
   it('throws on missing fetch', () => {
     const collector = { accept: () => {} };
     const clk = fakeClock(0);
