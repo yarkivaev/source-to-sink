@@ -124,6 +124,10 @@ function attempt(bag) {
     }
     bag.delay = bag.interval;
     bag.state = connected(bag.client);
+    bag.client.setTimeout(bag.interval * 1000);
+    bag.client.once('close', () => {
+      bag.lost();
+    });
     bag.source.start();
   }).catch((err) => {
     if (token !== bag.epoch) {
@@ -137,6 +141,28 @@ function attempt(bag) {
     bag.state = retrying(handle);
     bag.delay = Math.min(bag.delay * 2, bag.maxDelay);
   });
+}
+
+/**
+ * Resets a live session and retries through attempt() backoff.
+ *
+ * @param {object} bag - Mutable lifecycle bag
+ */
+function resume(bag) {
+  if (!bag.state.connected()) {
+    return;
+  }
+  bag.source.stop();
+  const { client } = bag;
+  bag.client = undefined;
+  bag.state = idle();
+  drop(client);
+  bag.log.error(`Connection to ${bag.target} lost, retrying in ${bag.delay}s`);
+  const handle = setTimeout(() => {
+    attempt(bag);
+  }, bag.delay * 1000);
+  bag.state = retrying(handle);
+  bag.delay = Math.min(bag.delay * 2, bag.maxDelay);
 }
 
 /**
@@ -155,9 +181,17 @@ function modbusPollingSource(options) {
     maxDelay: 300,
     delay: interval
   };
+  bag.lost = function lost() {
+    resume(bag);
+  };
   async function fetch() {
-    const result = await bag.client.readHoldingRegisters(address, count);
-    return [result.data];
+    try {
+      const result = await bag.client.readHoldingRegisters(address, count);
+      return [result.data];
+    } catch (err) {
+      bag.lost();
+      throw err;
+    }
   }
   bag.source = pollingSource(fetch, interval, collector, clk);
   return {
@@ -179,9 +213,10 @@ function modbusPollingSource(options) {
       if (bag.state.retrying()) {
         bag.state.cancel();
       }
-      drop(bag.client);
+      const { client } = bag;
       bag.client = undefined;
       bag.state = idle();
+      drop(client);
     }
   };
 }

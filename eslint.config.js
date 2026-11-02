@@ -150,6 +150,7 @@ export default [
         files: ['src/modbusSource.js'],
         rules: {
             'max-params': ['error', 8],
+            'max-lines': ['error', { 'max': 250, 'skipBlankLines': true, 'skipComments': true }],
             'max-lines-per-function': ['error', { 'max': 60, 'skipBlankLines': true, 'skipComments': true }],
             'max-statements': ['error', 20]
         }
