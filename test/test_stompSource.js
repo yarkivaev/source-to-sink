@@ -1,6 +1,7 @@
 import assert from 'node:assert';
 import { describe, it } from 'mocha';
 import stompSource from '../src/stompSource.js';
+import stompit from 'stompit';
 
 describe('stompSource', () => {
   it('throws on missing url', () => {
@@ -60,4 +61,56 @@ describe('stompSource', () => {
     });
     assert.strictEqual(typeof source.start, 'function', 'manualAck source missing start');
   });
+});
+
+/**
+ * Captures the protocol headers using an inert channel.
+ *
+ * @param {object} options - Source options
+ * @returns {object} SUBSCRIBE headers
+ */
+function subscription(options) {
+  const original = stompit.Channel;
+  let headers;
+  stompit.Channel = function Channel() {
+    return {
+      subscribe(value) { headers = value; },
+      close() { return undefined; }
+    };
+  };
+  try {
+    const source = stompSource('stomp://localhost:61613', '/queue/backlog', {
+      accept() { return undefined; }
+    }, options);
+    source.start();
+    source.stop();
+    return headers;
+  } finally {
+    stompit.Channel = original;
+  }
+}
+
+describe('STOMP delivery window', function() {
+  it('bounds the default backlog without changing acknowledgements', function() {
+    assert.deepStrictEqual(subscription({ manualAck: true, serial: false }), {
+      destination: '/queue/backlog',
+      ack: 'client-individual',
+      'prefetch-count': '32'
+    });
+  });
+
+  it('sends a configured finite delivery window', function() {
+    const prefetch = Math.floor(Math.random() * 100) + 1;
+    assert.strictEqual(subscription({ prefetch })['prefetch-count'], String(prefetch));
+  });
+
+  for (const prefetch of [0, -1, 1.5, Infinity, NaN, '32']) {
+    it(`rejects invalid prefetch ${prefetch}`, function() {
+      assert.throws(function() {
+        stompSource('stomp://localhost:61613', '/queue/backlog', {
+          accept() { return undefined; }
+        }, { prefetch });
+      }, /prefetch must be a positive safe integer/u);
+    });
+  }
 });

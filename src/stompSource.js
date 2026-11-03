@@ -115,13 +115,13 @@ function read(message) {
  * @param {object} channel - STOMP channel
  * @param {string} destination - queue destination
  * @param {object} collector - message collector
- * @param {boolean} serial - wait for persist before the next arrival
- * @param {boolean} manualAck - collector settles frames
+ * @param {object} delivery - serial, manualAck and prefetch settings
  * @returns {undefined}
  */
-function bind(channel, destination, collector, serial, manualAck) {
+function bind(channel, destination, collector, delivery) {
+  const { serial, manualAck, prefetch } = delivery;
   let pending = Promise.resolve();
-  channel.subscribe({ destination, ack: 'client-individual' }, (err, message) => {
+  channel.subscribe({ destination, ack: 'client-individual', 'prefetch-count': String(prefetch) }, (err, message) => {
     if (err) {
       return;
     }
@@ -140,11 +140,13 @@ function bind(channel, destination, collector, serial, manualAck) {
  * Messages are `{destination, payload, settle}`. Default ack-after-accept;
  * with `manualAck` the collector owns settle. Arrivals enqueue in
  * subscribe order. With `serial: false` persist may overlap after enqueue.
+ * A finite prefetch (default 32) bounds unacknowledged broker deliveries.
  *
  * @param {string} url - STOMP broker URL
  * @param {string} destination - STOMP destination
  * @param {object} collector - Collector with accept()
  * @param {object} [options] - Connection and delivery options
+ * @param {number} [options.prefetch=32] - Positive integer delivery window
  * @returns {object} Source with start() and stop() methods
  */
 export default function stompSource(url, destination, collector, options = {}) {
@@ -156,6 +158,10 @@ export default function stompSource(url, destination, collector, options = {}) {
   }
   if (!collector || typeof collector.accept !== 'function') {
     throw new Error('Collector must have an accept() method');
+  }
+  const prefetch = options.prefetch ?? 32;
+  if (!Number.isSafeInteger(prefetch) || prefetch < 1) {
+    throw new Error('prefetch must be a positive safe integer');
   }
   const parsed = new URL(url);
   const serial = options.serial !== false;
@@ -172,7 +178,7 @@ export default function stompSource(url, destination, collector, options = {}) {
         maxReconnects: -1
       });
       const channel = new stompit.Channel(failover);
-      bind(channel, destination, collector, serial, manualAck);
+      bind(channel, destination, collector, { serial, manualAck, prefetch });
       state = subscribed(channel);
     },
     stop() {
