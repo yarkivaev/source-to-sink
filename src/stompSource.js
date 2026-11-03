@@ -62,8 +62,8 @@ function settleOf(channel, message) {
     ack() {
       channel.ack(message);
     },
-    nack() {
-      channel.nack(message);
+    nack(requeue = true) {
+      channel.nack(message, { requeue: String(requeue) });
     }
   };
 }

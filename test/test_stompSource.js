@@ -114,3 +114,33 @@ describe('STOMP delivery window', function() {
     });
   }
 });
+
+
+describe('STOMP dead lettering', function() {
+  it('sends requeue=false for a rejected poison message', async function() {
+    const original = stompit.Channel;
+    let receive;
+    let headers;
+    stompit.Channel = function Channel() {
+      return {
+        subscribe(value, callback) { receive = callback; },
+        nack(message, value) { headers = value; },
+        close() {}
+      };
+    };
+    try {
+      const source = stompSource('stomp://localhost:61613', '/queue/test', {
+        accept({ settle }) { settle.nack(false); }
+      }, { manualAck: true });
+      source.start();
+      receive(null, { readString(encoding, callback) { callback(null, '{}'); } });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      source.stop();
+      assert.deepStrictEqual(headers, { requeue: 'false' });
+    } finally {
+      // Test restores its synchronous module stub after delivery completes.
+      // eslint-disable-next-line require-atomic-updates
+      stompit.Channel = original;
+    }
+  });
+});

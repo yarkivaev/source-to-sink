@@ -47,3 +47,5 @@ integer to tune throughput. A zero (unlimited) window is rejected because a
 backlog can otherwise exhaust the consumer's heap. With `manualAck: true`, the
 collector remains responsible for settling frames. If it flushes only by count,
 its batch must not exceed the prefetch window; a timed flush also avoids stalls.
+
+Manual collectors may call `settle.nack(false)` to dead-letter invalid messages. Configure a durable dead-letter queue and broker policy before enabling this; without a route RabbitMQ discards rejected messages. `settle.nack()` retains retry behaviour.
