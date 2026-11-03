@@ -38,3 +38,12 @@ source.start();
 ## License
 
 MIT
+
+### STOMP delivery window
+
+`stompSource(url, destination, collector, { prefetch: 32 })` bounds broker deliveries
+that are waiting for acknowledgement. The default is 32; use a positive safe
+integer to tune throughput. A zero (unlimited) window is rejected because a
+backlog can otherwise exhaust the consumer's heap. With `manualAck: true`, the
+collector remains responsible for settling frames. If it flushes only by count,
+its batch must not exceed the prefetch window; a timed flush also avoids stalls.
