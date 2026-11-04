@@ -2,11 +2,12 @@ import pollingSource from './pollingSource.js';
 import positive from './positive.js';
 
 function config(options) {
-  const settings = { requestTimeoutMs: 5000, maxResponseBytes: 1048576, pageLimit: 1000, ...options };
+  const settings = { requestTimeoutMs: 5000, maxResponseBytes: 1048576, pageLimit: 1000, queryLagMs: 1000, ...options };
   ['requestTimeoutMs', 'maxResponseBytes', 'pageLimit'].forEach((key) => { positive(settings[key], key); });
   if (!Number.isSafeInteger(settings.pageLimit) || settings.pageLimit > 10000 || !Number.isSafeInteger(settings.maxResponseBytes)) {
     throw new TypeError('Invalid Loki response capacity');
   }
+  if (!Number.isSafeInteger(settings.queryLagMs) || settings.queryLagMs < 0) { throw new TypeError('Invalid Loki queryLagMs'); }
   return settings;
 }
 async function body(response, maxBytes) {
@@ -63,6 +64,8 @@ async function request(url, settings, signal) {
 }
 /**
  * Bounded Loki polling. Saturated pages fail without advancing the in-memory cursor.
+ * Windows lag wall-clock time by queryLagMs (default 1s) to allow ingestion visibility.
+ * Entries becoming visible later than this configured lag may still be missed.
  * This live polling source does not expose portable history checkpoints or pagination.
  *
  * @param {string} url - Loki base URL
@@ -70,7 +73,7 @@ async function request(url, settings, signal) {
  * @param {number} interval - Polling interval in seconds
  * @param {object} collector - Collector with accept()
  * @param {object} clk - Clock with millis()
- * @param {object} options - requestTimeoutMs, maxResponseBytes, pageLimit, onError
+ * @param {object} options - requestTimeoutMs, maxResponseBytes, pageLimit, queryLagMs, onError
  * @returns {object} Source with async start/stop
  */
 // Sixth optional argument preserves the established five-argument source API.
@@ -80,6 +83,6 @@ export default function lokiSource(url, query, interval, collector, clk, options
   if (typeof query !== 'string' || query.length === 0) { throw new Error('Query must be a non-empty string'); }
   const settings = config(options);
   return pollingSource((since, until, { signal } = {}) => {
-    return request(requestUrl(url, query, { since, until }, settings.pageLimit), settings, signal);
+    return request(requestUrl(url, query, { since: since - settings.queryLagMs, until: until - settings.queryLagMs }, settings.pageLimit), settings, signal);
   }, interval, collector, clk);
 }

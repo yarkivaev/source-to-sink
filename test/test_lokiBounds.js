@@ -33,13 +33,33 @@ describe('Loki bounded reads', function () {
             response.end(JSON.stringify(payload(['first', 'second'])));
         });
         const source = lokiSource(server.url, '{}', 0.01, { accept(record) { accepted.push(record); } }, { millis() { return now; } },
-            { pageLimit: 2, onError(error) { errors.push(error); } });
+            { pageLimit: 2, queryLagMs: 0, onError(error) { errors.push(error); } });
         try {
             await source.start();
             await until(() => { return starts.length >= 3; });
             assert.equal(accepted.length, 0);
             assert.ok(errors.length >= 2);
             assert.deepEqual([...new Set(starts)], ['100000000']);
+        } finally { await server.stop(); await source.stop(); }
+    });
+    it('queries behind ingestion visibility so an initially invisible log is not skipped', async function () {
+        const received = [];
+        const timestamp = Date.now() + 30;
+        const visibleAt = timestamp + 80;
+        const server = await serverFor((request, response) => {
+            const params = new URL(request.url, 'http://localhost').searchParams;
+            const start = Number(params.get('start')) / 1000000;
+            const end = Number(params.get('end')) / 1000000;
+            const visible = Date.now() >= visibleAt && timestamp >= start && timestamp <= end;
+            response.end(JSON.stringify({ status: 'success', data: { resultType: 'streams',
+                result: visible ? [{ values: [[String(timestamp * 1000000), 'late visibility']] }] : [] } }));
+        });
+        const source = lokiSource(server.url, '{}', 0.02, { accept(record) { received.push(record); } },
+            { millis() { return Date.now(); } }, { queryLagMs: 100 });
+        try {
+            await source.start();
+            await new Promise((resolve) => { setTimeout(resolve, 350); });
+            assert.equal(received.length, 1);
         } finally { await server.stop(); await source.stop(); }
     });
     it('rejects oversized response bodies before delivery', async function () {
