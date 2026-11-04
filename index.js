@@ -49,3 +49,5 @@ export { default as amqpSource } from './src/amqpSource.js';
 export { default as amqpSession } from './src/amqpSource/session.js';
 export { default as serialSource } from './src/serialSource.js';
 export { default as intervalSource } from './src/intervalSource.js';
+
+export { default as boundedBatch } from './src/boundedBatch.js';

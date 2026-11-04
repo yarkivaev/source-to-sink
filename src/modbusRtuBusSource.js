@@ -1,118 +1,124 @@
 import ModbusRTU from 'modbus-serial';
+import positive from './positive.js';
+import deadline from './deadline.js';
 
-/**
- * Validates RTU bus source arguments.
- *
- * @param {string} path - Serial device path
- * @param {object} serial - Serial options with baudRate
- * @param {Array} slaves - Slave descriptors
- */
-function assertBusArgs(path, serial, slaves) {
-    if (typeof path !== 'string' || path.length === 0) {
-        throw new Error('Serial path must be a non-empty string');
-    }
-    if (!serial || typeof serial.baudRate !== 'number' || serial.baudRate <= 0) {
-        throw new Error('Serial baudRate must be a positive number');
-    }
-    if (!Array.isArray(slaves) || slaves.length === 0) {
-        throw new Error('Slaves must be a non-empty array');
-    }
-}
-
-/**
- * Reads one slave holding-register block and forwards it to its collector.
- *
- * @param {object} client - ModbusRTU client
- * @param {object} slave - slaveId and collector
- * @param {number} address - PDU start address
- * @param {number} count - Register count
- * @returns {Promise<void>}
- */
-function readSlave(client, slave, address, count) {
-    client.setID(slave.slaveId);
-    return client.readHoldingRegisters(address, count).then((result) => {
-        slave.collector.accept(result.data);
+function validate(path, serial, slaves, poll) {
+    if (typeof path !== 'string' || !path) { throw new Error('Serial path must be a non-empty string'); }
+    if (!serial || !Number.isFinite(serial.baudRate) || serial.baudRate <= 0) { throw new Error('Serial baudRate must be a positive number'); }
+    if (!Array.isArray(slaves) || !slaves.length) { throw new Error('Slaves must be a non-empty array'); }
+    positive(poll.interval, 'interval');
+    slaves.forEach((slave) => {
+        if (!Number.isInteger(slave.slaveId) || slave.slaveId < 1 || slave.slaveId > 247 || typeof slave.collector?.accept !== 'function') {
+            throw new TypeError('Each RTU slave requires an ID from 1 to 247 and a collector');
+        }
     });
 }
-
-/**
- * Polls all slaves on the bus sequentially.
- *
- * @param {object} client - ModbusRTU client
- * @param {Array} slaves - Slave descriptors
- * @param {number} address - PDU start address
- * @param {number} count - Register count
- * @returns {Promise<void>}
- */
-function pollSlaves(client, slaves, address, count) {
-    return slaves.reduce((chain, slave) => {
-        return chain.then(() => {
-            return readSlave(client, slave, address, count);
-        });
-    }, Promise.resolve());
+function report(ctx, error) {
+    try { ctx.poll.log?.error(`RTU bus on ${ctx.path}: ${error.message}`); } catch {
+        // Diagnostics cannot stop recovery.
+    }
 }
-
-/**
- * Modbus RTU bus source: one serial port, several slave IDs polled in sequence.
- *
- * @example
- * const source = modbusRtuBusSource(
- *   '/dev/ttyUSB0',
- *   { baudRate: 9600, stopBits: 2, parity: 'none' },
- *   [{ slaveId: 1, collector: t1 }, { slaveId: 2, collector: t2 }],
- *   { address: 1280, count: 30, interval: 5 }
- * );
- * source.start();
- *
- * @param {string} path - Serial device path
- * @param {object} serial - baudRate, dataBits, stopBits, parity
- * @param {Array<{slaveId: number, collector: object}>} slaves - Slave poll targets
- * @param {object} poll - address, count, interval, optional log
- * @returns {object} Source with start() and stop()
- */
+function close(ctx) {
+    ctx.closing ??= deadline(new Promise((resolve, reject) => {
+        ctx.client.close((error) => { if (error) { reject(error); } else { resolve(); } });
+    }), ctx.poll.stopTimeoutMs, 'RTU close');
+    return ctx.closing;
+}
+function pause(ctx) {
+    return new Promise((resolve) => { ctx.wake = resolve; ctx.timer = setTimeout(resolve, ctx.poll.interval * 1000); })
+        .finally(() => { clearTimeout(ctx.timer); ctx.wake = null; });
+}
+async function read(ctx, slave) {
+    ctx.client.setID(slave.slaveId);
+    const result = await deadline(ctx.client.readHoldingRegisters(ctx.poll.address, ctx.poll.count), ctx.poll.readTimeoutMs, 'RTU read');
+    if (ctx.active) {
+        await deadline(Promise.resolve().then(() => {
+            return slave.collector.accept(result.data, { signal: ctx.controller.signal });
+        }), ctx.poll.acceptTimeoutMs, 'RTU acceptance', (error) => { ctx.controller.abort(error); });
+    }
+}
+async function cycle(ctx) {
+    for (const slave of ctx.slaves) {
+        if (!ctx.active) { return; }
+        try {
+            // Shared setID requires every read and acceptance to finish before the next slave.
+            // eslint-disable-next-line no-await-in-loop
+            await read(ctx, slave);
+        } catch (error) {
+            if (error.code === 'OPERATION_TIMEOUT') { throw error; }
+            report(ctx, error);
+        }
+    }
+}
+async function session(ctx) {
+    ctx.opening = true;
+    const opening = ctx.client.connectRTUBuffered(ctx.path, ctx.serial);
+    void Promise.resolve(opening).then(() => {
+        ctx.opening = false;
+        if (!ctx.active) { return close(ctx); }
+        return undefined;
+    }, () => { ctx.opening = false; }).catch((error) => { report(ctx, error); });
+    await deadline(opening, ctx.poll.connectTimeoutMs, 'RTU connect');
+    while (ctx.active) {
+        // eslint-disable-next-line no-await-in-loop
+        await cycle(ctx);
+        // eslint-disable-next-line no-await-in-loop
+        if (ctx.active) { await pause(ctx); }
+    }
+}
+async function run(ctx) {
+    while (ctx.active) {
+        ctx.client = (ctx.poll.createClient || (() => { return new ModbusRTU(); }))();
+        ctx.client.setTimeout(ctx.poll.readTimeoutMs);
+        ctx.closing = null;
+        try {
+            // eslint-disable-next-line no-await-in-loop
+            await session(ctx);
+        } catch (error) {
+            report(ctx, error);
+            if (error.code === 'OPERATION_TIMEOUT') { Object.assign(ctx, { fatal: error, active: false }); }
+        } finally {
+            // Never treat closing a still-opening handle as proof its eventual port is closed.
+            // eslint-disable-next-line no-await-in-loop
+            if (!ctx.opening) { await close(ctx); }
+        }
+        // eslint-disable-next-line no-await-in-loop
+        if (ctx.active) { await pause(ctx); }
+    }
+}
+function launch(path, serial, slaves, poll) {
+    const ctx = { path, serial, slaves, poll, active: true, controller: new AbortController() };
+    ctx.task = run(ctx);
+    void ctx.task.catch((error) => { ctx.fatal = error; ctx.active = false; report(ctx, error); });
+    return ctx;
+}
+/** One serialized RTU bus. stop drains/closes; uncertain deadlines quarantine this instance. */
 export default function modbusRtuBusSource(path, serial, slaves, poll) {
-    assertBusArgs(path, serial, slaves);
-    const log = poll.log || console;
-    const client = new ModbusRTU();
-    const line = {
-        baudRate: serial.baudRate,
-        dataBits: serial.dataBits || 8,
-        stopBits: serial.stopBits || 1,
-        parity: serial.parity || 'none'
-    };
-    let handle = null;
-    let opened = false;
-    function runPoll() {
-        pollSlaves(client, slaves, poll.address, poll.count).catch((err) => {
-            log.error(`RTU bus poll on ${path} failed: ${err.message}`);
-        });
-    }
-    function attempt() {
-        client.connectRTUBuffered(path, line).then(() => {
-            opened = true;
-            handle = setInterval(runPoll, poll.interval * 1000);
-            runPoll();
-        }).catch((err) => {
-            log.error(`Connection to ${path} failed, retrying: ${err.message}`);
-            handle = setTimeout(attempt, poll.interval * 1000);
-        });
-    }
+    validate(path, serial, slaves, poll);
+    const settings = { readTimeoutMs: 5000, connectTimeoutMs: 5000, acceptTimeoutMs: 10000, stopTimeoutMs: 5000, ...poll };
+    ['readTimeoutMs', 'connectTimeoutMs', 'acceptTimeoutMs', 'stopTimeoutMs'].forEach((key) => { positive(settings[key], key); });
+    let ctx;
+    let revision = 0;
     return {
-        start() {
-            if (!(opened || handle)) {
-                attempt();
+        async start() {
+            if (ctx?.active) { return; }
+            revision += 1;
+            const requested = revision;
+            if (ctx) {
+                await ctx.task;
+                if (ctx.fatal) { throw ctx.fatal; }
             }
+            if (requested === revision) { ctx = launch(path, serial, slaves, settings); }
         },
         stop() {
-            if (handle) {
-                clearInterval(handle);
-                clearTimeout(handle);
-                handle = null;
-            }
-            if (opened) {
-                client.close();
-                opened = false;
-            }
+            revision += 1;
+            if (!ctx) { return Promise.resolve(); }
+            ctx.active = false;
+            ctx.controller.abort(new Error('RTU source stopped'));
+            ctx.wake?.();
+            return deadline(ctx.task, settings.stopTimeoutMs, 'RTU stop', (error) => { ctx.fatal = error; if (!ctx.opening) { void close(ctx).catch(() => { return undefined; }); } }).then(() => {
+                if (ctx.fatal) { throw ctx.fatal; }
+            });
         }
     };
 }

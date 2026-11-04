@@ -76,4 +76,17 @@ describe('AMQP source and sink integration', function() {
             assert.equal((await channel.checkQueue(queue)).consumerCount, 1);
         } finally { await probe.close(); }
     });
+    it('rejects a mandatory unroutable publication despite the broker confirm', async function() {
+        this.timeout(10000);
+        const sender = amqpSink(url, { exchanges: [{ name: 'mandatory.integration', type: 'direct', options: { durable: false } }] });
+        await sender.start();
+        try {
+            await assert.rejects(sender.write([{
+                exchange: 'mandatory.integration', routingKey: 'no-such-queue', body: 'event',
+                options: { mandatory: true, persistent: true, messageId: 'original-event' }
+            }]), (error) => { return error.code === 'AMQP_UNROUTABLE'; });
+            assert.equal(sender.active(), true, 'a deterministic return need not retire the connection');
+        } finally { await sender.stop(); }
+    });
+
 });

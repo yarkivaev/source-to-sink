@@ -1,54 +1,37 @@
 import positive from './positive.js';
 
-function report(options, error, device) {
-    try { options.onError?.(error, device); } catch {
-        // Observability must not prevent retries.
-    }
-}
+import deadline from './deadline.js';
+import receive, { closePort, report } from './serialReceive.js';
+
 async function openPort(device) {
     const { SerialPort } = await import('serialport');
     const port = new SerialPort({ ...device, autoOpen: false });
     await new Promise((resolve, reject) => { port.open((error) => { if (error) { reject(error); } else { resolve(); } }); });
     return port;
 }
-function closePort(port) {
-    if (port.isOpen === false) { return Promise.resolve(); }
-    return new Promise((resolve) => { port.close(() => { resolve(); }); });
-}
 function pause(state, milliseconds) {
     return new Promise((resolve) => { state.wake = resolve; state.timer = setTimeout(resolve, milliseconds); })
         .finally(() => { clearTimeout(state.timer); state.wake = null; });
-}
-async function receive(state, port, device, collector, options) {
-    const pending = new Set();
-    const closed = new Promise((resolve) => { state.wake = resolve; });
-    function data(chunk) {
-        const accepted = Promise.resolve().then(() => {
-            if (state.active) { return collector.accept({ device, chunk }); }
-            return undefined;
-        }).catch((error) => { report(options, error, device); }).finally(() => { pending.delete(accepted); });
-        pending.add(accepted);
-    }
-    function failed(failure) { report(options, failure, device); state.wake?.(); }
-    function close() { state.wake?.(); }
-    port.on('data', data).on('error', failed).on('close', close);
-    if (!state.active) { state.wake(); }
-    await closed;
-    port.off('data', data);
-    try { await closePort(port); } finally {
-        port.off('error', failed).off('close', close);
-        await Promise.all(pending);
-    }
 }
 async function run(state, device, collector, options) {
     while (state.active) {
         try {
             // Each port has an independent serialized open/close/retry loop.
+            const attempt = { timedOut: false };
+            const opening = Promise.resolve().then(() => { return options.openPort(device, { signal: state.controller.signal }); });
+            void opening.then((late) => {
+                if (attempt.timedOut) { return closePort(late, options.stopTimeoutMs); }
+                return undefined;
+            }).catch((error) => { report(options, error, device); });
+            // A timed-out open is uncertain; never open a second handle in this instance.
             // eslint-disable-next-line no-await-in-loop
-            const port = await options.openPort(device);
+            const port = await deadline(opening, options.openTimeoutMs, 'Serial open', (error) => { attempt.timedOut = true; state.controller.abort(error); });
             // eslint-disable-next-line no-await-in-loop
             await receive(state, port, device, collector, options);
-        } catch (error) { if (state.active) { report(options, error, device); } }
+        } catch (error) {
+            if (error.resourceUncertain || error.code === 'OPERATION_TIMEOUT') { Object.assign(state, { fatal: error, active: false }); }
+            report(options, error, device);
+        }
         if (state.active) {
             // eslint-disable-next-line no-await-in-loop
             await pause(state, options.retryMs);
@@ -69,8 +52,10 @@ function validate(devices, collector) {
 /** Independent serial devices; chunks and device metadata pass through unchanged. */
 export default function serialSource(devices, collector, options = {}) {
     validate(devices, collector);
-    const settings = { retryMs: 1000, ...options, openPort: options.openPort ?? openPort };
-    positive(settings.retryMs, 'retryMs');
+    const settings = { retryMs: 1000, openTimeoutMs: 5000, acceptTimeoutMs: 10000, stopTimeoutMs: 5000, maxPending: 32, maxPendingBytes: 1048576,
+        ...options, openPort: options.openPort ?? openPort };
+    ['retryMs', 'acceptTimeoutMs', 'openTimeoutMs', 'stopTimeoutMs', 'maxPending', 'maxPendingBytes'].forEach((key) => { positive(settings[key], key); });
+    if (!Number.isSafeInteger(settings.maxPending) || !Number.isSafeInteger(settings.maxPendingBytes)) { throw new TypeError('Serial capacities must be safe integers'); }
     const states = devices.map(() => { return { active: false, task: null, wake: null, timer: null }; });
     let revision = 0;
     let stopping = Promise.resolve();
@@ -79,16 +64,23 @@ export default function serialSource(devices, collector, options = {}) {
             revision += 1;
             const requested = revision;
             await stopping;
+            const failed = states.find((state) => { return state.fatal; });
+            if (failed) { throw failed.fatal; }
             if (requested === revision) {
                 states.forEach((state, index) => {
-                    if (!state.active) { state.active = true; state.task = run(state, devices[index], collector, settings); }
+                    if (!state.active) { state.active = true; state.controller = new AbortController(); state.task = run(state, devices[index], collector, settings); }
                 });
             }
         },
         stop() {
             revision += 1;
-            states.forEach((state) => { state.active = false; state.wake?.(); });
-            stopping = Promise.all(states.map((state) => { return state.task; }));
+            states.forEach((state) => { state.active = false; state.controller?.abort(new Error('Serial source stopped')); state.wake?.(); });
+            stopping = deadline(Promise.all(states.map((state) => { return state.task; })), settings.stopTimeoutMs, 'Serial stop', (error) => {
+                states.forEach((state) => { state.fatal = error; });
+            }).then(() => {
+                const failed = states.find((state) => { return state.fatal; });
+                if (failed) { throw failed.fatal; }
+            });
             return stopping;
         }
     };

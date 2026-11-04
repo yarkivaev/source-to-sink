@@ -1,4 +1,6 @@
 import stompit from 'stompit';
+import deadline from './deadline.js';
+import positive from './positive.js';
 
 /**
  * Builds STOMP connect options from a URL.
@@ -63,21 +65,25 @@ export default function stompSend(url, destination, payload, options = {}) {
     const parsed = new URL(url);
     const params = connectParams(parsed, options);
     const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
-    return new Promise((resolve, reject) => {
-        stompit.connect(params, (error, client) => {
-            if (error) {
-                reject(error);
-                return;
-            }
-            const frame = client.send(stompHeaders(destination));
-            frame.end(body);
-            client.disconnect((disconnectError) => {
-                if (disconnectError) {
-                    reject(disconnectError);
-                    return;
-                }
-                resolve();
-            });
+    const timeoutMs = options.timeoutMs ?? 10000;
+    positive(timeoutMs, 'timeoutMs');
+    const state = { active: true, client: null, connecting: null };
+    const sent = new Promise((resolve, reject) => {
+        state.connecting = (options.connect || stompit.connect)({ ...params, timeout: timeoutMs }, (error, client) => {
+            if (error) { reject(error); return; }
+            state.client = client;
+            if (!state.active) { client.destroy(); return; }
+            client.on('error', reject);
+            try {
+                const frame = client.send(stompHeaders(destination), { onReceipt() {
+                    if (state.active) { client.disconnect((failure) => { if (failure) { reject(failure); } else { resolve(); } }); }
+                } });
+                frame.end(body);
+            } catch (failure) { client.destroy(); reject(failure); }
         });
     });
+    return deadline(sent, timeoutMs, 'STOMP receipt/disconnect', () => {
+        state.active = false;
+        (state.client || state.connecting)?.destroy();
+    }).finally(() => { state.active = false; });
 }

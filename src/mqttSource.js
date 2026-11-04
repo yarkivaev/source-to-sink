@@ -1,112 +1,66 @@
 import mqtt from 'mqtt';
+import positive from './positive.js';
+import deadline from './deadline.js';
+import budgetAccept from './budgetAccept.js';
 
-/**
- * Idle state for MQTT source.
- *
- * @returns {object} State with subscribed() returning false
- */
-function idle() {
-  return {
-    subscribed() {
-      return false;
+function report(options, error) {
+    try { options.onError?.(error); } catch {
+        // Diagnostics cannot break transport callbacks.
     }
-  };
 }
-
-/**
- * Subscribed state for MQTT source.
- *
- * @param {object} client - MQTT client
- * @param {function} handler - Message handler function
- * @returns {object} State with subscribed() returning true
- */
-function subscribed(client, handler) {
-  return {
-    subscribed() {
-      return true;
-    },
-    client() {
-      return client;
-    },
-    handler() {
-      return handler;
-    }
-  };
+function bind(live, collector, options) {
+    live.client.on('error', (error) => { report(options, error); });
+    // MQTT.js serializes handleMessage and sends PUBACK/PUBCOMP only on successful completion.
+    live.client.handleMessage = (packet, callback) => {
+        const accepted = Promise.resolve().then(() => {
+            if (!live.active) { throw new Error('MQTT source stopped'); }
+            return budgetAccept(collector, { topic: packet.topic, payload: packet.payload.toString() }, packet.payload.length, options, { signal: live.controller.signal });
+        });
+        live.pending.add(accepted);
+        void accepted.finally(() => { live.pending.delete(accepted); }).catch(() => { return undefined; });
+        deadline(accepted, options.acceptTimeoutMs, 'MQTT acceptance', (error) => {
+            live.active = false; live.controller.abort(error); live.client.end(true);
+        }).then(() => {
+            callback(live.active ? undefined : new Error('MQTT source stopped'));
+        }, (error) => { callback(error); report(options, error); });
+    };
 }
-
-/**
- * MQTT subscription source for streaming messages to a collector.
- *
- * Subscribes to MQTT topics and forwards raw messages to the collector.
- * Messages are passed as {topic, payload} objects without parsing.
- * Creates MQTT client internally. Supports comma-separated topic patterns.
- *
- * @example
- * const source = mqttSource('mqtt://localhost:1883', 'sensors/#,devices/#', collector);
- * source.start();
- * // ... later
- * source.stop();
- *
- * @param {string} url - MQTT broker URL (e.g., 'mqtt://localhost:1883')
- * @param {string} topics - Comma-separated MQTT topic patterns to subscribe
- * @param {object} collector - Collector with accept() method receiving {topic, payload}
- * @param {object} [options] - Optional MQTT connection options
- * @param {string} [options.clientId] - Client ID for persistent sessions
- * @param {number} [options.sessionExpiryInterval] - Session expiry in seconds (default 3600)
- * @returns {object} Source with start() and stop() methods
- */
+function open(url, list, collector, options) {
+    const client = (options.connect || mqtt.connect)(url, {
+        ...options.connectionOptions, clientId: options.clientId, clean: !options.clientId, protocolVersion: 5,
+        properties: { sessionExpiryInterval: options.clientId ? options.sessionExpiryInterval ?? 3600 : 0,
+            receiveMaximum: options.prefetch ?? 32, maximumPacketSize: options.maxPacketBytes ?? 1048576 }
+    });
+    const live = { client, active: true, pending: new Set(), controller: new AbortController() };
+    bind(live, collector, options);
+    client.on('connect', () => {
+        if (live.active) { client.subscribe(list, { qos: options.qos ?? (options.clientId ? 1 : 0) }); }
+    });
+    return live;
+}
+/** ACK follows asynchronous acceptance, not merely receipt. Acceptance is not necessarily durable. */
 export default function mqttSource(url, topics, collector, options = {}) {
-  if (typeof url !== 'string' || url.length === 0) {
-    throw new Error('URL must be a non-empty string');
-  }
-  if (typeof topics !== 'string' || topics.length === 0) {
-    throw new Error('Topic must be a non-empty string');
-  }
-  if (!collector || typeof collector.accept !== 'function') {
-    throw new Error('Collector must have an accept() method');
-  }
-  const list = topics.split(',').map((tp) => {return tp.trim()}).filter((tp) => {return tp.length > 0});
-  let state = idle();
-  return {
-    /**
-     * Starts subscribing to the MQTT topics.
-     */
-    start() {
-      if (state.subscribed()) {
-        return;
-      }
-      const client = mqtt.connect(url, {
-        clientId: options.clientId,
-        clean: !options.clientId,
-        protocolVersion: 5,
-        properties: options.clientId ? {
-          sessionExpiryInterval: options.sessionExpiryInterval || 3600
-        } : undefined
-      });
-      // @todo Implement manualAcknowledge to defer ack until batch writes to sink
-      // Currently MQTT.js auto-acks after this callback returns, before the batch
-      // flushes to the database. Up to 5 seconds of data may be lost on crash
-      function handler(tp, message) {
-        collector.accept({ topic: tp, payload: message.toString() });
-      }
-      client.on('message', handler);
-      client.on('connect', () => {
-        client.subscribe(list, { qos: options.clientId ? 1 : 0 });
-      });
-      state = subscribed(client, handler);
-    },
-    /**
-     * Stops subscribing to the MQTT topics.
-     */
-    stop() {
-      if (!state.subscribed()) {
-        return;
-      }
-      const client = state.client();
-      client.unsubscribe(list);
-      client.off('message', state.handler());
-      client.end();
-      state = idle();
-    }
-  };
+    if (typeof url !== 'string' || !url) { throw new Error('URL must be a non-empty string'); }
+    if (typeof topics !== 'string' || !topics.trim()) { throw new Error('Topic must be a non-empty string'); }
+    if (typeof collector?.accept !== 'function') { throw new Error('Collector must have an accept() method'); }
+    const config = { acceptTimeoutMs: 10000, stopTimeoutMs: 5000, ...options };
+    positive(config.acceptTimeoutMs, 'acceptTimeoutMs');
+    positive(config.stopTimeoutMs, 'stopTimeoutMs');
+    const list = topics.split(',').map((topic) => { return topic.trim(); }).filter(Boolean);
+    let live;
+    return {
+        start() {
+            if (!live) { live = open(url, list, collector, config); }
+        },
+        stop() {
+            if (!live) { return Promise.resolve(); }
+            const stopped = live;
+            stopped.active = false;
+            stopped.controller.abort(new Error('MQTT source stopped'));
+            const closing = new Promise((resolve) => { stopped.client.end(true, {}, resolve); });
+            return deadline(Promise.all([closing, ...stopped.pending]), config.stopTimeoutMs, 'MQTT stop').then(() => {
+                if (live === stopped) { live = undefined; }
+            });
+        }
+    };
 }

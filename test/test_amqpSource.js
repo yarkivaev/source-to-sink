@@ -108,7 +108,7 @@ describe('amqpSource', () => {
         await source.stop();
     });
 
-    it('cancels consumption then drains acceptance before closing or restarting', async () => {
+    it('revokes settlement and drains acceptance before closing or restarting', async () => {
         const first = broker();
         const second = broker();
         let release;
@@ -127,7 +127,7 @@ describe('amqpSource', () => {
         await Promise.all([delivery, stopping, restarting]);
         await source.stop();
         assert.deepEqual(observed, { stopped: false, connects: 1, events: ['queue', 'cancel'] });
-        assert.deepEqual(first.events, ['queue', 'cancel', 'ack', 'channel.close', 'connection.close']);
+        assert.deepEqual(first.events, ['queue', 'cancel', 'channel.close', 'connection.close']);
     });
     it('drains acceptance on connection loss before scheduling recovery', async () => {
         const fake = broker();

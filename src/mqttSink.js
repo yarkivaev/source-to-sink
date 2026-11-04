@@ -1,98 +1,54 @@
 import mqtt from 'mqtt';
+import positive from './positive.js';
+import { connect, publish, terminate } from './mqttSink/session.js';
 
-/**
- * Idle state for MQTT sink.
- *
- * @returns {object} State with connected() returning false
- */
-function idle() {
-  return {
-    connected() {
-      return false;
-    }
-  };
+function settings(options) {
+    const config = { qos: 0, maxPending: 1024, maxPendingBytes: 1048576, connectTimeoutMs: 5000, confirmTimeoutMs: 10000, stopTimeoutMs: 5000, ...options };
+    ['maxPending', 'maxPendingBytes', 'connectTimeoutMs', 'confirmTimeoutMs', 'stopTimeoutMs'].forEach((key) => { positive(config[key], key); });
+    if (!Number.isSafeInteger(config.maxPending)) { throw new TypeError('maxPending must be a safe integer'); }
+    if (![0, 1, 2].includes(config.qos)) { throw new TypeError('qos must be 0, 1, or 2'); }
+    return config;
 }
-
-/**
- * Connected state for MQTT sink.
- *
- * @param {object} client - MQTT client
- * @returns {object} State with connected() returning true
- */
-function connected(client) {
-  return {
-    connected() {
-      return true;
-    },
-    publish(topic, payload, qos) {
-      client.publish(topic, payload, { qos });
-    },
-    disconnect() {
-      client.end();
-    }
-  };
+function write(live, records, signal) {
+    if (!live?.ready || live.dead) { throw new Error('Sink is not connected'); }
+    if (!Array.isArray(records) || records.some((record) => {
+        return !record || typeof record.topic !== 'string' || !record.topic || !(typeof record.payload === 'string' || Buffer.isBuffer(record.payload));
+    })) { return Promise.reject(new TypeError('MQTT records require a topic and string/Buffer payload')); }
+    if (signal?.aborted) { return Promise.reject(signal.reason || new Error('MQTT publish aborted')); }
+    const bytes = records.reduce((total, record) => { return total + Buffer.byteLength(record.payload) + Buffer.byteLength(record.topic); }, 0);
+    if (live.bytes + bytes > live.options.maxPendingBytes || live.count + records.length > live.options.maxPending) { return Promise.reject(new Error('MQTT pending capacity exceeded')); }
+    live.count += records.length;
+    live.bytes += bytes;
+    return Promise.all(records.map((record) => {
+        if (live.dead) { live.count -= 1; return Promise.reject(new Error('MQTT connection closed')); }
+        return publish(live, record, signal);
+    })).finally(() => { live.bytes -= bytes; });
 }
-
-/**
- * MQTT sink for publishing records to MQTT topics.
- *
- * Each record must have a topic and payload field.
- * Creates an MQTT client internally and manages the connection.
- *
- * @example
- * const sink = mqttSink('mqtt://localhost:1883');
- * sink.start();
- * sink.write([{ topic: 'sensors/temp', payload: '42.5' }]);
- * sink.stop();
- *
- * @param {string} url - MQTT broker URL (e.g., 'mqtt://localhost:1883')
- * @param {object} [options] - Optional MQTT connection options
- * @param {string} [options.clientId] - Client ID for the connection
- * @param {number} [options.qos] - QoS level for publishing (default 0)
- * @returns {object} Sink with write(), start(), and stop() methods
+/** start awaits CONNACK; write awaits publish completion (broker confirmation at QoS 1/2).
+ * QoS 0 only confirms local handoff. No automatic replay of uncertain writes.
  */
 export default function mqttSink(url, options = {}) {
-  if (typeof url !== 'string' || url.length === 0) {
-    throw new Error('URL must be a non-empty string');
-  }
-  const qos = options.qos || 0;
-  let state = idle();
-  return {
-    /**
-     * Writes records to MQTT topics.
-     *
-     * @param {Array} records - Array of {topic, payload} records
-     */
-    write(records) {
-      if (!state.connected()) {
-        throw new Error('Sink is not connected');
-      }
-      for (const record of records) {
-        state.publish(record.topic, record.payload, qos);
-      }
-    },
-    /**
-     * Connects to the MQTT broker.
-     */
-    start() {
-      if (state.connected()) {
-        return;
-      }
-      const client = mqtt.connect(url, {
-        clientId: options.clientId,
-        protocolVersion: 5
-      });
-      state = connected(client);
-    },
-    /**
-     * Disconnects from the MQTT broker.
-     */
-    stop() {
-      if (!state.connected()) {
-        return;
-      }
-      state.disconnect();
-      state = idle();
-    }
-  };
+    if (typeof url !== 'string' || !url) { throw new Error('URL must be a non-empty string'); }
+    const config = settings(options);
+    let live;
+    return {
+        start() {
+            if (live && !live.dead) { return live.opening; }
+            if (live?.dead) { return Promise.reject(new Error('MQTT session retired; create a new sink after stop')); }
+            const client = (options.connect || mqtt.connect)(url, {
+                ...options.connectionOptions, clientId: options.clientId, protocolVersion: 5,
+                reconnectPeriod: 0, queueQoSZero: false, connectTimeout: config.connectTimeoutMs
+            });
+            live = { client, options: config, pending: new Set(), count: 0, bytes: 0, ready: false, dead: false };
+            live.opening = connect(live);
+            return live.opening;
+        },
+        write(records, { signal } = {}) { return write(live, records, signal); },
+        stop() {
+            const stopped = live;
+            return (stopped ? terminate(stopped, new Error('MQTT sink stopped')) : Promise.resolve()).then(() => {
+                if (live === stopped) { live = undefined; }
+            });
+        }
+    };
 }

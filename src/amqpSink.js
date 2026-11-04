@@ -3,8 +3,8 @@ import publication from './amqpSink/publication.js';
 
 function settings(url, options) {
     if (typeof url !== 'string' || !/^amqps?:\/\//u.test(url)) { throw new TypeError('AMQP URL is required'); }
-    const config = { retryMs: 1000, connectTimeoutMs: 5000, confirmTimeoutMs: 10000, maxPending: 1024, ...options };
-    ['retryMs', 'connectTimeoutMs', 'confirmTimeoutMs', 'maxPending'].forEach((name) => {
+    const config = { retryMs: 1000, connectTimeoutMs: 5000, confirmTimeoutMs: 10000, stopTimeoutMs: 5000, maxPending: 1024, ...options };
+    ['retryMs', 'connectTimeoutMs', 'confirmTimeoutMs', 'stopTimeoutMs', 'maxPending'].forEach((name) => {
         if (!Number.isFinite(config[name]) || config[name] <= 0) { throw new TypeError(`${name} must be positive`); }
     });
     if (!Number.isInteger(config.maxPending)) { throw new TypeError('maxPending must be an integer'); }
@@ -34,14 +34,14 @@ export default function amqpSink(url, options = {}) {
             return state.stopped.then(() => { if (request === state.request) { return begin(state); } return undefined; });
         },
         stop() { return stop(state); },
-        write(records) {
+        write(records, { signal } = {}) {
             if (!Array.isArray(records)) { return Promise.reject(new TypeError('AMQP records must be an array')); }
             if (!state.live) { return Promise.reject(new Error('AMQP sink is not connected')); }
             const { live } = state;
             if (live.blocked || live.pending.size + records.length > state.options.maxPending) {
                 return Promise.reject(new Error('AMQP sink backpressure: retry after confirmations or drain'));
             }
-            return Promise.all(records.map((record) => { return publication(live, record, state.options.confirmTimeoutMs); }));
+            return Promise.all(records.map((record) => { return publication(live, record, state.options.confirmTimeoutMs, signal); }));
         }
     };
 }

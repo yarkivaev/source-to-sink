@@ -144,3 +144,34 @@ describe('STOMP dead lettering', function() {
     }
   });
 });
+
+describe('STOMP shutdown fencing', function() {
+  it('does not acknowledge a late acceptance after stop', async function() {
+    const original = stompit.Channel;
+    let receive;
+    let release;
+    let acknowledgements = 0;
+    stompit.Channel = function Channel() {
+      return {
+        subscribe(headers, callback) { receive = callback; }, close() {},
+        ack() { acknowledgements += 1; }, nack() {}
+      };
+    };
+    try {
+      const source = stompSource('stomp://localhost', '/queue/test', {
+        accept() { return new Promise((resolve) => { release = resolve; }); }
+      }, { stopTimeoutMs: 10 });
+      source.start();
+      receive(null, { readString(encoding, callback) { callback(null, 'one'); } });
+      await new Promise((resolve) => { setImmediate(resolve); });
+      await assert.rejects(source.stop(), /timed out/u);
+      release();
+      await new Promise((resolve) => { setImmediate(resolve); });
+      assert.strictEqual(acknowledgements, 0);
+    } finally {
+      // Restore the dependency boundary stub after delivery settles.
+      // eslint-disable-next-line require-atomic-updates
+      stompit.Channel = original;
+    }
+  });
+});

@@ -1,5 +1,7 @@
 import ModbusRTU from 'modbus-serial';
 import pollingSource from './pollingSource.js';
+import deadline from './deadline.js';
+import abortable from './abortable.js';
 
 /**
  * Idle state for Modbus connection.
@@ -116,19 +118,24 @@ function attempt(bag) {
   const token = bag.epoch;
   bag.state = opening();
   drop(bag.client);
-  bag.client = bag.create();
-  bag.connect(bag.client).then(() => {
+  const client = bag.create();
+  bag.client = client;
+  const connecting = bag.connect(client);
+  void connecting.then(() => { if (token !== bag.epoch) { drop(client); } }).catch(() => { return undefined; });
+  bag.opened = deadline(connecting, 5000, 'Modbus connect', (error) => {
+    bag.fatal = error; bag.epoch += 1; drop(client);
+  }).then(() => {
     if (token !== bag.epoch) {
-      drop(bag.client);
+      drop(client);
       return;
     }
     bag.delay = bag.interval;
-    bag.state = connected(bag.client);
-    bag.client.setTimeout(bag.interval * 1000);
-    bag.client.once('close', () => {
-      bag.lost();
+    bag.state = connected(client);
+    client.setTimeout(bag.interval * 1000);
+    client.once('close', () => {
+      if (token === bag.epoch && bag.client === client) { bag.lost(); }
     });
-    bag.source.start();
+    void bag.source.start().catch((error) => { bag.fatal = error; drop(client); });
   }).catch((err) => {
     if (token !== bag.epoch) {
       return;
@@ -152,14 +159,15 @@ function resume(bag) {
   if (!bag.state.connected()) {
     return;
   }
-  bag.source.stop();
+  const drained = bag.source.stop();
   const { client } = bag;
   bag.client = undefined;
   bag.state = idle();
   drop(client);
   bag.log.error(`Connection to ${bag.target} lost, retrying in ${bag.delay}s`);
+  const token = bag.epoch;
   const handle = setTimeout(() => {
-    attempt(bag);
+    void drained.then(() => { if (token === bag.epoch) { attempt(bag); } }).catch((error) => { bag.fatal = error; });
   }, bag.delay * 1000);
   bag.state = retrying(handle);
   bag.delay = Math.min(bag.delay * 2, bag.maxDelay);
@@ -184,12 +192,13 @@ function modbusPollingSource(options) {
   bag.lost = function lost() {
     resume(bag);
   };
-  async function fetch() {
+  async function fetch(since, until, { signal } = {}) {
+    const { client } = bag;
     try {
-      const result = await bag.client.readHoldingRegisters(address, count);
+      const result = await abortable(client.readHoldingRegisters(address, count), signal, () => { drop(client); });
       return [result.data];
     } catch (err) {
-      bag.lost();
+      if (bag.client === client) { bag.lost(); }
       throw err;
     }
   }
@@ -199,17 +208,20 @@ function modbusPollingSource(options) {
      * Connects to the Modbus device and starts polling.
      */
     start() {
+      if (bag.fatal) { return Promise.reject(bag.fatal); }
       if (bag.state.connected() || bag.state.retrying() || bag.state.opening()) {
-        return;
+        return Promise.resolve();
       }
-      attempt(bag);
+      const token = bag.epoch;
+      bag.state = opening();
+      return Promise.resolve(bag.stopping).then(() => { if (token === bag.epoch) { attempt(bag); } });
     },
     /**
      * Stops polling and disconnects from the Modbus device.
      */
     stop() {
       bag.epoch += 1;
-      bag.source.stop();
+      const drained = bag.source.stop();
       if (bag.state.retrying()) {
         bag.state.cancel();
       }
@@ -217,6 +229,10 @@ function modbusPollingSource(options) {
       bag.client = undefined;
       bag.state = idle();
       drop(client);
+      bag.stopping = deadline(Promise.all([drained, bag.opened]), 5000, 'Modbus stop', (error) => { bag.fatal = error; }).then(() => {
+        if (bag.fatal) { throw bag.fatal; }
+      });
+      return bag.stopping;
     }
   };
 }

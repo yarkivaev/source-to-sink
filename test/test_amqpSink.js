@@ -123,3 +123,27 @@ describe('amqpSink', function() {
   });
 
 });
+
+it('mandatory AMQP publications reject correlated returns before confirms', async () => {
+  const fake = broker();
+  const sent = [];
+  fake.channel.publish = (exchange, routingKey, body, options, confirm) => {
+    sent.push({ options, confirm });
+    return true;
+  };
+  const sink = amqpSink('amqp://test', { connect() { return Promise.resolve(fake.connection); } });
+  await sink.start();
+  const first = sink.write([{ ...record, options: { mandatory: true, messageId: 'event-one', headers: { eventId: 'event-one' } } }]);
+  const rejected = assert.rejects(first, /unroutable|returned/iu);
+  const second = sink.write([{ ...record, options: { mandatory: true, messageId: 'event-one' } }]);
+  assert.equal(sent[0].options.messageId, 'event-one');
+  assert.equal(sent[1].options.messageId, 'event-one');
+  assert.equal(sent[0].options.headers.eventId, 'event-one');
+  assert.notEqual(sent[0].options.headers['x-source-to-sink-publish-id'], sent[1].options.headers['x-source-to-sink-publish-id']);
+  fake.channel.emit('return', { properties: { messageId: 'event-one', headers: sent[0].options.headers }, fields: { replyText: 'NO_ROUTE' } });
+  sent[0].confirm();
+  sent[1].confirm();
+  await rejected;
+  await second;
+  await sink.stop();
+});

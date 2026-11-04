@@ -1,4 +1,6 @@
 import amqp from 'amqplib';
+import brokerClose, { destroyConnection } from '../brokerClose.js';
+import deadline from '../deadline.js';
 
 export function report(state, error) {
     try { state.options.onError?.(error); } catch {
@@ -9,8 +11,9 @@ export function closeLive(live) {
     if (!live) { return Promise.resolve(); }
     live.closing ??= Promise.resolve().then(async () => {
         live.pending.forEach((settle) => { settle(new Error('AMQP connection closed before confirmation')); });
-        if (live.channel) { await live.channel.close().catch(() => { return undefined; }); }
-        if (live.connection) { await live.connection.close().catch(() => { return undefined; }); }
+        await brokerClose([
+            () => { return live.channel?.close(); }, () => { return live.connection?.close(); }
+        ], live.options.stopTimeoutMs, 'AMQP close', () => { destroyConnection(live.connection); });
     });
     return live.closing;
 }
@@ -25,19 +28,27 @@ function retry(state, epoch) {
 function drop(state, live, error) {
     if (live.dead) { return; }
     live.dead = true;
+    live.pending.forEach((settle) => { settle(error || new Error('AMQP connection closed')); });
     if (state.live === live) { state.live = null; }
     if (error) { report(state, error); }
-    void closeLive(live).then(() => { retry(state, live.epoch); });
+    void closeLive(live).then(() => { retry(state, live.epoch); }, (failure) => { state.fatal = failure; report(state, failure); });
 }
 function bind(state, live, handle) {
     handle.on('error', (error) => { drop(state, live, error); });
     handle.on('close', () => { drop(state, live); });
+}
+function returned(live, message) {
+    const settle = live.returns.get(message.properties?.headers?.['x-source-to-sink-publish-id']);
+    const error = new Error(`AMQP publication returned unroutable: ${message.fields?.replyText || 'NO_ROUTE'}`);
+    error.code = 'AMQP_UNROUTABLE';
+    if (settle) { settle(error); } else { live.fail(error); }
 }
 async function configure(state, live) {
     // This attempt owns live; stop closes it after opening settles and epoch is checked below.
     // eslint-disable-next-line require-atomic-updates
     live.channel = await live.connection.createConfirmChannel();
     bind(state, live, live.channel);
+    live.channel.on('return', (message) => { returned(live, message); });
     live.channel.on('drain', () => { live.blocked = false; });
     await Promise.all((state.options.exchanges || []).map((item) => {
         return live.channel.assertExchange(item.name, item.type || 'topic', item.options || {durable: true});
@@ -56,7 +67,7 @@ function keep(state, live) {
     return undefined;
 }
 async function connect(state, epoch) {
-    const live = { connection: null, channel: null, pending: new Set(), epoch, dead: false, blocked: false,
+    const live = { options: state.options, connection: null, channel: null, pending: new Set(), returns: new Map(), epoch, dead: false, blocked: false,
         fail(error) { drop(state, live, error); } };
     try {
         live.connection = await (state.options.connect || amqp.connect)(state.url, { timeout: state.options.connectTimeoutMs });
@@ -72,11 +83,14 @@ async function connect(state, epoch) {
     }
 }
 export function begin(state) {
+    if (state.fatal) { return Promise.reject(state.fatal); }
     if (state.live) { return Promise.resolve(); }
     if (state.opening) { return state.opening; }
     if (!state.wanted) { return Promise.resolve(); }
     clearTimeout(state.retry);
     state.retry = null;
-    state.opening = connect(state, state.epoch).finally(() => { state.opening = null; });
+    state.opening = deadline(connect(state, state.epoch), state.options.connectTimeoutMs, 'AMQP connect', (error) => {
+        state.fatal = error; state.wanted = false; state.epoch += 1;
+    }).finally(() => { state.opening = null; });
     return state.opening;
 }

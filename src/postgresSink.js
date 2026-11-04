@@ -1,4 +1,6 @@
 import pg from 'pg';
+import deadline from './deadline.js';
+import positive from './positive.js';
 
 /**
  * Removes duplicate records by conflict key within a batch.
@@ -84,7 +86,9 @@ export default function postgresSink(url, table, columns, options = {}) {
   if (!Array.isArray(columns) || columns.length === 0) {
     throw new Error('Columns must be a non-empty array');
   }
-  const pool = options.pool || new pg.Pool({ connectionString: url });
+  positive(options.stopTimeoutMs ?? 5000, 'stopTimeoutMs');
+  const pool = options.pool || (options.createPool || ((config) => { return new pg.Pool(config); }))({ connectionString: url });
+  let stopping;
   const suffix = buildSuffix(options);
   const conflict = Array.isArray(options.conflict) ? options.conflict : [];
   return {
@@ -96,6 +100,8 @@ export default function postgresSink(url, table, columns, options = {}) {
      * @returns {Promise} Promise resolving when insert completes
      */
     write(records, client) {
+      if (stopping) { return Promise.reject(new Error('PostgreSQL sink stopped')); }
+      if (client?.signal?.aborted) { return Promise.reject(client.signal.reason || new Error('PostgreSQL write aborted')); }
       const unique = deduplicate(records, conflict);
       const placeholders = unique.map((record, i) => {
         const offset = i * columns.length;
@@ -106,6 +112,13 @@ export default function postgresSink(url, table, columns, options = {}) {
       const values = unique.flatMap((record) => {return columns.map((col) => {return record[col]})});
       const runner = client && typeof client.query === 'function' ? client : pool;
       return runner.query(query, values);
+    },
+    stop() {
+      stopping ??= deadline(Promise.resolve().then(() => {
+        if (!options.pool) { return pool.end(); }
+        return undefined;
+      }), options.stopTimeoutMs ?? 5000, 'PostgreSQL pool close');
+      return stopping;
     }
   };
 }

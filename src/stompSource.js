@@ -1,5 +1,7 @@
 import stompit from 'stompit';
 import follow from './follow.js';
+import deadline from './deadline.js';
+import { acceptStomp, readStomp, stompSettings } from './stompBody.js';
 
 /**
  * Idle state for STOMP source.
@@ -20,14 +22,15 @@ function idle() {
  * @param {object} channel - STOMP channel
  * @returns {object} State with subscribed() returning true
  */
-function subscribed(channel) {
+function subscribed(channel, delivery) {
   return {
     subscribed() {
       return true;
     },
     channel() {
       return channel;
-    }
+    },
+    delivery
   };
 }
 
@@ -57,13 +60,14 @@ function serverConfig(parsed, options) {
  * @param {object} message - STOMP frame
  * @returns {{ ack: Function, nack: Function }}
  */
-function settleOf(channel, message) {
+function settleOf(channel, message, lifecycle) {
+  let settled = false;
   return {
     ack() {
-      channel.ack(message);
+      if (lifecycle.active && !settled) { channel.ack(message); settled = true; }
     },
     nack(requeue = true) {
-      channel.nack(message, { requeue: String(requeue) });
+      if (lifecycle.active && !settled) { channel.nack(message, { requeue: String(requeue) }); settled = true; }
     }
   };
 }
@@ -76,9 +80,13 @@ function settleOf(channel, message) {
  * @returns {Promise<void>}
  */
 async function deliver(ctx, body) {
-  const settle = settleOf(ctx.channel, ctx.message);
+  const settle = settleOf(ctx.channel, ctx.message, ctx.lifecycle);
   try {
-    await ctx.collector.accept({ destination: ctx.destination, payload: body, settle });
+    await deadline(Promise.resolve().then(() => {
+      return acceptStomp(ctx, body, settle);
+    }), ctx.lifecycle.acceptTimeoutMs, 'STOMP acceptance', (error) => {
+      ctx.lifecycle.fatal = error; ctx.lifecycle.active = false; ctx.lifecycle.controller.abort(error); ctx.channel.close();
+    });
     if (!ctx.manualAck) {
       settle.ack();
     }
@@ -88,24 +96,6 @@ async function deliver(ctx, body) {
     }
     throw error;
   }
-}
-
-/**
- * Reads one STOMP frame body as text.
- *
- * @param {object} message - STOMP frame
- * @returns {Promise<string>} UTF-8 body
- */
-function read(message) {
-  return new Promise((resolve, reject) => {
-    message.readString('utf-8', (error, body) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve(body.toString());
-    });
-  });
 }
 
 /**
@@ -119,18 +109,29 @@ function read(message) {
  * @returns {undefined}
  */
 function bind(channel, destination, collector, delivery) {
-  const { serial, manualAck, prefetch } = delivery;
+  const { serial, manualAck, prefetch, lifecycle } = delivery;
   let pending = Promise.resolve();
   channel.subscribe({ destination, ack: 'client-individual', 'prefetch-count': String(prefetch) }, (err, message) => {
     if (err) {
       return;
     }
-    const ctx = { channel, message, destination, collector, manualAck };
+    const ctx = { channel, message, destination, collector, manualAck, lifecycle };
     pending = follow(pending, () => {
-      return read(message);
+      if (!lifecycle.active) { return Promise.reject(new Error('STOMP source stopped')); }
+      return deadline(readStomp(message, lifecycle.maxMessageBytes), lifecycle.acceptTimeoutMs, 'STOMP read').catch((error) => {
+        lifecycle.fatal = error; lifecycle.active = false; channel.close(); throw error;
+      });
     }, (body) => {
-      return deliver(ctx, body);
+      const task = deliver(ctx, body);
+      lifecycle.pending.add(task);
+      return task.finally(() => { lifecycle.pending.delete(task); });
     }, serial);
+    lifecycle.chain = pending;
+    void pending.catch((error) => {
+      try { lifecycle.onError?.(error); } catch {
+        // Reporting cannot reject a transport callback.
+      }
+    });
   });
 }
 
@@ -163,6 +164,7 @@ export default function stompSource(url, destination, collector, options = {}) {
   if (!Number.isSafeInteger(prefetch) || prefetch < 1) {
     throw new Error('prefetch must be a positive safe integer');
   }
+  const settings = stompSettings(options, prefetch);
   const parsed = new URL(url);
   const serial = options.serial !== false;
   const manualAck = options.manualAck === true;
@@ -178,15 +180,22 @@ export default function stompSource(url, destination, collector, options = {}) {
         maxReconnects: -1
       });
       const channel = new stompit.Channel(failover);
-      bind(channel, destination, collector, { serial, manualAck, prefetch });
-      state = subscribed(channel);
+      const lifecycle = { ...settings, active: true, controller: new AbortController(), pending: new Set(), bytes: 0 };
+      bind(channel, destination, collector, { serial, manualAck, prefetch, lifecycle });
+      state = subscribed(channel, lifecycle);
     },
     stop() {
       if (!state.subscribed()) {
-        return;
+        return Promise.resolve();
       }
-      state.channel().close();
-      state = idle();
+      const stopped = state;
+      stopped.delivery.active = false;
+      stopped.delivery.controller.abort(new Error('STOMP source stopped'));
+      stopped.channel().close();
+      return deadline(Promise.allSettled([stopped.delivery.chain, ...stopped.delivery.pending]), options.stopTimeoutMs ?? 5000, 'STOMP stop').then(() => {
+        if (stopped.delivery.fatal) { throw stopped.delivery.fatal; }
+        if (state === stopped) { state = idle(); }
+      });
     }
   };
 }

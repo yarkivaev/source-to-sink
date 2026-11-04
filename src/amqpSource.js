@@ -1,14 +1,24 @@
 import amqpSession from './amqpSource/session.js';
+import budgetAccept from './budgetAccept.js';
 
-function deliveryFor(channel, message) {
+function capacity(options) {
+    const settings = { prefetch: 32, maxMessageBytes: 1048576, ...options };
+    settings.maxPendingBytes ??= settings.prefetch * settings.maxMessageBytes;
+    ['prefetch', 'maxMessageBytes', 'maxPendingBytes'].forEach((name) => {
+        if (!Number.isSafeInteger(settings[name]) || settings[name] < 1) { throw new TypeError(`${name} must be a positive safe integer`); }
+    });
+    return settings;
+}
+
+function deliveryFor(channel, message, options) {
     let settled = false;
     return {
         content: message.content, fields: message.fields, properties: message.properties,
         ack() {
-            if (!settled) { channel.ack(message); settled = true; }
+            if (!settled && options.active()) { channel.ack(message); settled = true; }
         },
         reject(requeue = true) {
-            if (!settled) { channel.nack(message, false, requeue); settled = true; }
+            if (!settled && options.active()) { channel.nack(message, false, requeue); settled = true; }
         }
     };
 }
@@ -29,9 +39,9 @@ function rejectDelivery(delivery, options, error) {
 function consume(channel, collector, options) {
     return async (message) => {
         if (!message) { channel.emit('close'); return; }
-        const delivery = deliveryFor(channel, message);
+        const delivery = deliveryFor(channel, message, options);
         try {
-            await collector.accept(delivery);
+            await budgetAccept(collector, delivery, message.content.length, options);
             if (options.ackMode !== 'manual') { delivery.ack(); }
         } catch (error) {
             rejectDelivery(delivery, options, error);
@@ -40,10 +50,19 @@ function consume(channel, collector, options) {
 }
 function trackedConsume(channel, collector, options, pending) {
     const accept = consume(channel, collector, options);
+    const state = { bytes: 0 };
     return (message) => {
+        if (!options.active()) { return Promise.resolve(); }
+        const bytes = message?.content?.length ?? 0;
+        if (bytes > options.maxMessageBytes || state.bytes + bytes > options.maxPendingBytes) {
+            try { channel.nack(message, false, false); } catch (error) { reportFailure(options, error); }
+            reportFailure(options, new Error('AMQP payload capacity exceeded; rejected without requeue'));
+            return Promise.resolve();
+        }
+        state.bytes += bytes;
         const delivery = accept(message);
         pending.add(delivery);
-        return delivery.finally(() => { pending.delete(delivery); });
+        return delivery.finally(() => { state.bytes -= bytes; pending.delete(delivery); });
     };
 }
 async function topology(channel, queue, options) {
@@ -61,10 +80,18 @@ async function topology(channel, queue, options) {
 /** Delivers AMQP records, acknowledging only after collector acceptance. */
 export default function amqpSource(url, queue, collector, options = {}) {
     if (!collector || typeof collector.accept !== 'function') { throw new Error('Collector must have an accept() method'); }
+    const settings = capacity(options);
     const pending = new Set();
-    return amqpSession(url, async (channel) => {
-        const name = await topology(channel, queue, options);
-        const result = await channel.consume(name, trackedConsume(channel, collector, options, pending), { noAck: false });
+    const state = {};
+    const session = amqpSession(url, async (channel) => {
+        const generation = state.session.generation();
+        const config = { ...settings, active() {
+            return state.session.active() && state.session.generation() === generation;
+        } };
+        const name = await topology(channel, queue, settings);
+        const result = await channel.consume(name, trackedConsume(channel, collector, config, pending), { noAck: false });
         return result.consumerTag;
-    }, { ...options, drain() { return Promise.all([...pending]); } });
+    }, { ...settings, drain() { return Promise.all([...pending]); } });
+    state.session = session;
+    return session;
 }

@@ -39,13 +39,13 @@ describe('serialSource', function () {
     assert.equal(opened.filter(({ device }) => { return device.path === '/b'; }).length, 3);
     await source.stop();
   });
-  it('removes listeners even when a custom port throws while closing', async function () {
+  it('reports failed close and removes listeners when a custom port throws', async function () {
     const item = port();
     item.close = () => { throw new Error('close failed'); };
     const source = serialSource([{ path: '/a' }], { accept() {} }, { openPort() { return item; } });
     await source.start();
     await pause();
-    await source.stop();
+    await assert.rejects(source.stop(), /close failed/u);
     assert.equal(item.listenerCount('data'), 0);
     assert.equal(item.listenerCount('error'), 0);
     assert.equal(item.listenerCount('close'), 0);

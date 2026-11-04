@@ -1,5 +1,9 @@
 // Each session is mutated only by its generation; disposal waits for subscription.
 /* eslint-disable require-atomic-updates */
+import brokerClose, { destroyConnection } from '../brokerClose.js';
+import deadline from '../deadline.js';
+import positive from '../positive.js';
+
 async function connectBroker(url) {
     const { default: amqp } = await import('amqplib');
     return amqp.connect(url, { heartbeat: 10 });
@@ -7,14 +11,15 @@ async function connectBroker(url) {
 function reportFailure(error) {
     process.stderr.write(`amqp consume failed ${error.message}\n`);
 }
-async function closePart(action, report) {
-    try { await action(); } catch (error) { report(error); }
-}
 async function closeLive(live, ctx) {
-    if (live.tag) { await closePart(() => { return live.channel.cancel(live.tag); }, ctx.report); }
-    if (ctx.drain) { await closePart(() => { return ctx.drain(live.channel); }, ctx.report); }
-    if (live.channel) { await closePart(() => { return live.channel.close(); }, ctx.report); }
-    if (live.connection) { await closePart(() => { return live.connection.close(); }, ctx.report); }
+    try {
+        await brokerClose([
+            () => { return live.tag ? live.channel.cancel(live.tag) : undefined; },
+            () => { return ctx.drain?.(live.channel); },
+            () => { return live.channel?.close(); },
+            () => { return live.connection?.close(); }
+        ], ctx.stopTimeoutMs, 'AMQP cleanup', () => { destroyConnection(live.connection); });
+    } catch (error) { ctx.state.fatal = error; throw error; }
 }
 function dispose(live, ctx) {
     if (!live) { return Promise.resolve(); }
@@ -23,7 +28,7 @@ function dispose(live, ctx) {
 }
 
 function current(ctx, generation) {
-    return ctx.state.running && ctx.state.generation === generation;
+    return !ctx.state.fatal && ctx.state.running && ctx.state.generation === generation;
 }
 function retry(ctx, generation) {
     if (!current(ctx, generation) || ctx.state.timer !== undefined) { return; }
@@ -31,7 +36,10 @@ function retry(ctx, generation) {
     ctx.state.delay = Math.min(pause * 2, 30000);
     ctx.state.timer = ctx.schedule(() => {
         ctx.state.timer = undefined;
-        ctx.state.opening = ctx.open(generation);
+        ctx.state.opening = deadline(ctx.open(generation), ctx.connectTimeoutMs, 'AMQP connect', (error) => {
+            ctx.state.fatal = error; ctx.state.running = false; ctx.state.generation += 1;
+        });
+        void ctx.state.opening.catch(ctx.report);
         return ctx.state.opening;
     }, pause);
 }
@@ -41,6 +49,7 @@ function bind(ctx, generation, live, emitter) {
         live.lost = true;
         if (error) { ctx.report(error); }
         ctx.state.cleanup = live.ready.then(() => { return dispose(live, ctx); }).then(() => { retry(ctx, generation); });
+        void ctx.state.cleanup.catch(ctx.report);
     }
     emitter.on('error', lost);
     emitter.on('close', lost);
@@ -69,6 +78,7 @@ async function open(ctx, generation) {
     } finally { complete(); }
 }
 async function begin(ctx) {
+    if (ctx.state.fatal) { throw ctx.state.fatal; }
     if (ctx.state.running) { await ctx.state.opening; return; }
     ctx.state.running = true;
     ctx.state.generation += 1;
@@ -76,7 +86,9 @@ async function begin(ctx) {
     await ctx.state.stopping;
     await ctx.state.cleanup;
     if (current(ctx, generation)) {
-        ctx.state.opening = ctx.open(generation);
+        ctx.state.opening = deadline(ctx.open(generation), ctx.connectTimeoutMs, 'AMQP connect', (error) => {
+            ctx.state.fatal = error; ctx.state.running = false; ctx.state.generation += 1;
+        });
         await ctx.state.opening;
     }
 }
@@ -91,7 +103,10 @@ async function end(ctx) {
 }
 /** Shared AMQP session lifecycle; subscribe returns a consumer tag. */
 export default function amqpSession(url, subscribeChannel, options = {}) {
+    positive(options.stopTimeoutMs ?? 5000, 'stopTimeoutMs');
+    positive(options.connectTimeoutMs ?? 5000, 'connectTimeoutMs');
     const ctx = {
+        stopTimeoutMs: options.stopTimeoutMs ?? 5000, connectTimeoutMs: options.connectTimeoutMs ?? 5000,
         url, subscribe: subscribeChannel, drain: options.drain,
         connect: options.connect || connectBroker,
         schedule: options.schedule || setTimeout,
@@ -106,6 +121,7 @@ export default function amqpSession(url, subscribeChannel, options = {}) {
             ctx.state.stopping = end(ctx);
             return ctx.state.stopping;
         },
-        active() { return ctx.state.running; }
+        generation() { return ctx.state.generation; },
+        active() { return !ctx.state.fatal && ctx.state.running; }
     };
 }
