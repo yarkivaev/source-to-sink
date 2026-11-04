@@ -1,4 +1,4 @@
-import { positive } from './opcua/config.js';
+import positive from './positive.js';
 
 function report(onError, error) {
     try { onError?.(error); } catch {

@@ -1,4 +1,4 @@
-import { positive } from './opcua/config.js';
+import positive from './positive.js';
 
 function report(options, error, device) {
     try { options.onError?.(error, device); } catch {

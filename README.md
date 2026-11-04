@@ -56,48 +56,6 @@ the collector. Await `stop()` before stopping downstream collectors or sinks,
 so in-flight acceptance can finish. A collector that never settles also prevents
 a draining stop from finishing.
 
-### OPC UA
-
-```javascript
-import { opcuaSource } from '@yarkivaev/source-to-sink';
-
-const source = opcuaSource([
-  {
-    url: 'opc.tcp://localhost:4840',
-    publishMs: 250,
-    heartbeatMs: 1000,
-    channels: [{ nodeId: 'ns=1;s=Temperature', label: 'oven' }]
-  }
-], {
-  async accept({ channel, value }) {
-    await storeReading(channel.label, value);
-  }
-}, { onError: (error, connection) => console.error(connection.url, error) });
-
-await source.start();
-// Later: await source.stop();
-```
-
-Every endpoint connects, subscribes and retries independently. Fresh heartbeat
-reads are serialized per endpoint and complement subscription updates; a value
-can therefore be delivered more than once. Bad-status values are skipped.
-Channel objects and values pass through unchanged. `stop()` disconnects endpoints
-and waits for already-started acceptance; restarting does not duplicate sessions.
-
-Options are `retryMs` (1000), `connectTimeoutMs` (5000),
-`requestTimeoutMs` (5000), and `onError(error, connection)`. Intervals and timeouts
-must be positive. Duplicate endpoint URLs or node IDs within an endpoint are
-rejected. `start()` initiates independent connection loops; it does not wait for
-all endpoints to become available.
-
-The OPC UA network library loads only on `start()`, not on package import or
-factory validation. Pure configuration validation is also available directly:
-
-```javascript
-import { validateConnections } from '@yarkivaev/source-to-sink/src/opcua/config.js';
-validateConnections(connections);
-```
-
 ### Serial chunks
 
 ```javascript
