@@ -43,3 +43,10 @@ export { default as modbusSource, modbusRtuSource } from './src/modbusSource.js'
 export { default as modbusRtuBusSource } from './src/modbusRtuBusSource.js';
 export { default as mqttSink } from './src/mqttSink.js';
 export { default as sqliteSink } from './src/sqliteSink.js';
+
+export { default as amqpSink } from './src/amqpSink.js';
+export { default as amqpSource } from './src/amqpSource.js';
+export { default as amqpSession } from './src/amqpSource/session.js';
+export { default as opcuaSource } from './src/opcuaSource.js';
+export { default as serialSource } from './src/serialSource.js';
+export { default as intervalSource } from './src/intervalSource.js';
