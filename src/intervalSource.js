@@ -22,7 +22,10 @@ export default function intervalSource(intervalMs, collector, options = {}) {
         if (!state.active || revision !== state.revision) { return; }
         state.timer = null;
         state.pending = Promise.resolve().then(() => {
-            if (state.active && revision === state.revision) { return deadline(Promise.resolve(collector.accept({ ts: Date.now() }, { signal: state.controller.signal })), acceptTimeoutMs, 'Interval acceptance', (error) => { state.fatal = error; state.active = false; state.controller.abort(error); }); }
+            if (state.active && revision === state.revision) {
+                state.controller = new AbortController();
+                return deadline(Promise.resolve(collector.accept({ ts: Date.now() }, { signal: state.controller.signal })), acceptTimeoutMs, 'Interval acceptance', (error) => { state.controller.abort(error); });
+            }
             return undefined;
         }).catch((error) => { report(onError, error); }).then(() => {
             if (state.active && revision === state.revision) {

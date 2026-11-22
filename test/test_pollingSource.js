@@ -91,6 +91,21 @@ describe('pollingSource', () => {
     assert.strictEqual(count, before, 'Should stop polling after stop');
   });
 
+  it('notifies miss when fetch rejects', async () => {
+    const missed = [];
+    const stamp = 4000 + Math.floor(Math.random() * 800);
+    const source = pollingSource(
+      () => { return Promise.reject(new Error(`нет \u0441\u0432\u044f\u0437\u0438 ${stamp}`)); },
+      0.03,
+      { accept() {}, miss(row) { missed.push(row.ts); } },
+      fakeClock(stamp)
+    );
+    source.start();
+    await new Promise((resolve) => { setTimeout(resolve, 80); });
+    source.stop();
+    assert.ok(missed.includes(stamp), 'poll failure did not mark the source missing');
+  });
+
   it('does not emit unhandled rejection when fetch rejects', async () => {
     const seen = [];
     function onReject(err) {

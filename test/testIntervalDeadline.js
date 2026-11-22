@@ -14,8 +14,44 @@ it('interval stop aborts acceptance and quarantines a collector that does not se
     await starting;
 });
 
-it('interval reports an already-expired acceptance deadline from stop', async () => {
-    const source = intervalSource(1, { accept() { return new Promise(() => {}); } }, { immediate: true, acceptTimeoutMs: 10 });
+it('interval start still works after an acceptance timeout', async () => {
+    let ticks = 0;
+    const source = intervalSource(1, {
+        accept() {
+            ticks += 1;
+            return ticks === 1 ? new Promise(() => {}) : Promise.resolve();
+        }
+    }, { immediate: true, acceptTimeoutMs: 15 });
     await source.start();
-    await assert.rejects(source.stop(), /timed out/u);
+    await source.stop();
+    await source.start();
+    await source.stop();
+    assert.ok(ticks >= 2, 'source stayed dead after an acceptance timeout');
+});
+
+it('interval keeps ticking after an acceptance timeout', async () => {
+    const errors = [];
+    const scheduled = [];
+    let ticks = 0;
+    const source = intervalSource(10, {
+        accept() {
+            ticks += 1;
+            return ticks === 1 ? new Promise(() => {}) : Promise.resolve();
+        }
+    }, {
+        immediate: true,
+        acceptTimeoutMs: 15,
+        onError(error) { errors.push(error); },
+        schedule(callback) { scheduled.push(callback); return callback; },
+        clear() {}
+    });
+    await source.start();
+    await new Promise((resolve) => { setTimeout(resolve, 40); });
+    assert.equal(errors[0]?.code, 'OPERATION_TIMEOUT');
+    assert.equal(scheduled.length, 1, 'timeout stopped the interval');
+    scheduled.shift()();
+    await new Promise((resolve) => { setImmediate(resolve); });
+    const count = ticks;
+    await source.stop();
+    assert.equal(count, 2, 'source did not accept another tick after timeout');
 });
