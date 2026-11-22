@@ -23,10 +23,15 @@ export default function pollingSource(fetch, interval, collector, clk) {
         async accept(event, { signal } = {}) {
             const { revision } = state;
             const until = clk.millis();
-            const rows = await fetch(state.since, until, { signal });
             function current() { return state.active && state.revision === revision; }
-            await deliver(rows, collector, current);
-            if (current()) { Object.assign(state, { since: until }); }
+            try {
+                const rows = await fetch(state.since, until, { signal });
+                await deliver(rows, collector, current);
+                if (current()) { Object.assign(state, { since: until }); }
+            } catch (error) {
+                if (current() && typeof collector.miss === 'function') { await collector.miss({ ts: until, error }); }
+                throw error;
+            }
         }
     });
     return {

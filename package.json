@@ -1,6 +1,6 @@
 {
   "name": "@yarkivaev/source-to-sink",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Generic library for building data streaming pipelines",
   "repository": {
     "type": "git",
